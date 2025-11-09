@@ -2,6 +2,10 @@
 
 A clean, fully conformant Go implementation of the [Confetti configuration language](https://confetti.hgs3.me/).
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/demen1n/confetti.svg)](https://pkg.go.dev/github.com/demen1n/confetti)
+[![Go Report Card](https://goreportcard.com/badge/github.com/demen1n/confetti)](https://goreportcard.com/report/github.com/demen1n/confetti)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## What's Confetti?
 
 Confetti is a minimal, human-friendly configuration format. Think of it as a simpler alternative to YAML or TOML — less magic, more clarity.
@@ -45,7 +49,7 @@ go get github.com/demen1n/confetti
 package main
 
 import (
-    "confetti"
+    "github.com/demen1n/confetti"
     "fmt"
     "log"
 )
@@ -129,21 +133,22 @@ These are Annex features that may be added in the future. The core language is f
 
 ## Testing
 
-Run the go test suite:
+Run the test suite:
 
 ```bash
-go test -v ./...
+go test -v
 ```
 
-Run the official Confetti conformance tests:
+### Conformance Tests
+
+Download and run the official Confetti conformance tests:
 
 ```bash
-# Clone the official test suite first
-git clone https://github.com/hgs3/confetti.git confetti-repo
-cp -r confetti-repo/tests/conformance ./tests/
+# Download latest tests from official repo
+./download-tests.sh
 
 # Run conformance tests
-go run conformance/conformance.go -dir ./tests/ -v
+go run tests/cmd/conformance.go -dir ./tests/conformance -v
 ```
 
 ## License
@@ -157,7 +162,7 @@ This implementation is based on the [Confetti specification](https://confetti.hg
 Contributions welcome! Please:
 
 1. Ensure all tests pass (`go test ./...`)
-2. Run conformance tests (`go run conformance/conformance.go`)
+2. Run conformance tests (`go run tests/cmd/conformance.go`)
 3. Follow existing code style
 4. Add tests for new features
 
@@ -166,5 +171,3 @@ Contributions welcome! Please:
 - [Confetti Specification](https://confetti.hgs3.me/specification/)
 - [Official Confetti Repository](https://github.com/hgs3/confetti)
 - [Conformance Test Suite](https://github.com/hgs3/confetti/tree/master/tests)
-
----

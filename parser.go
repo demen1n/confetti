@@ -65,7 +65,6 @@ func (p *Parser) parseDirectives(insideBlock bool) ([]Directive, error) {
 			continue
 		}
 
-		// end of file
 		if p.current.Type == TokenEOF {
 			break
 		}
@@ -91,7 +90,6 @@ func (p *Parser) parseDirectives(insideBlock bool) ([]Directive, error) {
 }
 
 func (p *Parser) parseDirective() (Directive, error) {
-	// parse arguments
 	args, err := p.parseArguments()
 	if err != nil {
 		return Directive{}, err
@@ -184,7 +182,7 @@ func (p *Parser) parseArguments() ([]string, error) {
 func (p *Parser) parseBlock() ([]Directive, error) {
 	// consume '{'
 	if p.current.Type != TokenLeftBrace {
-		return nil, fmt.Errorf("expected '{' at line %d", p.current.Line)
+		return nil, fmt.Errorf("expected '{' at line %d, got %v", p.current.Line, p.current.Type)
 	}
 
 	if err := p.advance(); err != nil {

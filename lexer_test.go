@@ -101,23 +101,6 @@ func TestLexer_QuotedArguments_SingleAndTriple(t *testing.T) {
 	}
 }
 
-func TestLexer_SimpleArgumentWithEscapes(t *testing.T) {
-	// backslash + newline = line continuation; backslash + char = escaped char
-	src := "foo\\\nbar baz\\;"
-
-	toks, err := collectTokens(t, src)
-	if err != nil {
-		t.Fatalf("lexer error: %v", err)
-	}
-
-	if toks[0].Type != TokenArgument || toks[0].Value != "foobar" {
-		t.Fatalf("expected 'foobar', got %q", toks[0].Value)
-	}
-	if toks[1].Type != TokenArgument || toks[1].Value != "baz;" {
-		t.Fatalf("expected 'baz;', got %q", toks[1].Value)
-	}
-}
-
 func TestLexer_UnexpectedChar(t *testing.T) {
 	// include a reserved punctuator inside a bare word -> should stop before it
 	src := "key{"

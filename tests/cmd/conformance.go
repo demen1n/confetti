@@ -1,16 +1,19 @@
 package main
 
 import (
-	"confetti"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/demen1n/confetti"
 )
 
+const defaultTestPath = "./tests/conformance"
+
 func main() {
-	testDir := flag.String("dir", "./tests/conformance", "directory with conformance tests")
+	testDir := flag.String("dir", defaultTestPath, "directory with conformance tests")
 	verbose := flag.Bool("v", false, "verbose output")
 	flag.Parse()
 
@@ -103,8 +106,8 @@ func main() {
 		}
 
 		actual := unit.String()
-		expectedStr := strings.TrimSpace(string(expected))
-		actualStr := strings.TrimSpace(actual)
+		expectedStr := normalizeLineEndings(strings.TrimSpace(string(expected)))
+		actualStr := normalizeLineEndings(strings.TrimSpace(actual))
 
 		if expectedStr != actualStr {
 			fmt.Printf("FAIL %s: output mismatch\n", testName)
@@ -135,6 +138,10 @@ func main() {
 	if failed > 0 {
 		os.Exit(1)
 	}
+}
+
+func normalizeLineEndings(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }
 
 func fileExists(path string) bool {

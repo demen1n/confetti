@@ -152,7 +152,6 @@ func (l *Lexer) scanNewline() (Token, error) {
 		l.advance()
 	}
 
-	// update line counter
 	l.line++
 	l.column = 1
 
