@@ -32,8 +32,9 @@ message "Hello, World!"
 ## Features
 
 - ✅ **100% conformant** with [Confetti 1.0.0 specification](https://confetti.hgs3.me/specification/)
-- ✅ Passes all 165 official conformance tests
+- ✅ Passes all 194 official conformance tests (core + all Annex extensions)
 - ✅ Full Unicode support (emojis, right-to-left text, etc.)
+- ✅ All three optional Annex extensions implemented
 - ✅ Clean, idiomatic Go API
 - ✅ Zero dependencies
 
@@ -87,13 +88,22 @@ func main() {
 ### Parsing
 
 ```go
-// Parse from string
+// Parse from string (no extensions)
 parser, err := confetti.NewParser(configString)
 config, err := parser.Parse()
 
 // Parse from file
 data, err := os.ReadFile("config.conf")
 parser, err := confetti.NewParser(string(data))
+config, err := parser.Parse()
+
+// Parse with extensions enabled
+opts := confetti.Options{
+    CStyleComments:      true,
+    ExpressionArguments: true,
+    PunctuatorArguments: []string{":=", "="},
+}
+parser, err := confetti.NewParserWithOptions(configString, opts)
 config, err := parser.Parse()
 ```
 
@@ -110,26 +120,48 @@ type Directive struct {
 }
 ```
 
+### Options
+
+```go
+type Options struct {
+    // Annex A: enables // single-line and /* */ block comments.
+    CStyleComments bool
+
+    // Annex B: enables (expr) argument syntax with balanced parentheses.
+    // The argument value is the content between the outermost parentheses.
+    ExpressionArguments bool
+
+    // Annex C: defines self-delimiting punctuator tokens.
+    // Each string is recognized as a standalone argument (maximal munch —
+    // longer punctuators take precedence regardless of order in the slice).
+    PunctuatorArguments []string
+}
+```
+
 ## What's Supported
 
+**Core language:**
 - **Simple directives**: `key value1 value2`
 - **Block directives**: `section { nested directives }`
 - **Quoted strings**: `"hello world"` and `"""multi-line"""`
 - **Escape sequences**: `\n`, `\t`, `\"`, etc.
-- **Line continuations**: `foo \ ` continues on next line
+- **Line continuations**: backslash at end of line continues on the next
 - **Comments**: `# This is a comment`
 - **Unicode**: Full support including emojis 👨‍🚀
 - **Multiple terminators**: Both newline and `;` work
 
-## What's Not (Yet) Supported
+**Annex A — C-style comments** (opt-in via `Options.CStyleComments`):
+- Single-line: `// comment`
+- Block: `/* multi-line comment */`
 
-The following optional extensions from the spec are not implemented:
+**Annex B — Expression arguments** (opt-in via `Options.ExpressionArguments`):
+- Parenthesised expressions with balanced nesting: `compute (1 + (2 * 3))`
+- Value is the content without outer parentheses: `1 + (2 * 3)`
 
-- C-style comments (`/* */` and `//`)
-- Expression arguments `(1 + 2)`
-- Punctuator arguments (`:=`, `+=`, etc.)
-
-These are Annex features that may be added in the future. The core language is fully supported.
+**Annex C — Punctuator arguments** (opt-in via `Options.PunctuatorArguments`):
+- Self-delimiting tokens built from argument characters
+- Example with `[":=", "="]`: `user:=smith` → three arguments: `user`, `:=`, `smith`
+- Longer punctuators always win (maximal munch)
 
 ## Testing
 
