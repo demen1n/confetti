@@ -397,7 +397,7 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 			return Token{}, fmt.Errorf("invalid escape sequence at line %d, column %d", l.line, l.column)
 		}
 
-		// C-style comment start terminates the argument (Annex A)
+		// c-style comment start terminates the argument (Annex A)
 		if l.opts.CStyleComments && r == '/' && l.peekSecond() == '/' {
 			break
 		}

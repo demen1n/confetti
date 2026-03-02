@@ -6,11 +6,11 @@ type Options struct {
 	CStyleComments bool
 
 	// ExpressionArguments enables Annex B: (expr) argument syntax with balanced parentheses.
-	// The value of the argument is the content between the outermost parentheses.
+	// the value of the argument is the content between the outermost parentheses.
 	ExpressionArguments bool
 
 	// PunctuatorArguments enables Annex C: self-delimiting punctuator argument tokens.
-	// Each string is a punctuator that will be recognized as a standalone argument.
-	// Longer punctuators are matched first (maximal munch).
+	// each string is a punctuator that will be recognized as a standalone argument.
+	// longer punctuators are matched first (maximal munch).
 	PunctuatorArguments []string
 }
