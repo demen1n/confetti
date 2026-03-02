@@ -31,23 +31,25 @@ func main() {
 
 	passed := 0
 	failed := 0
-	skipped := 0
 
 	for _, confFile := range confFiles {
 		baseName := strings.TrimSuffix(confFile, ".conf")
 		testName := filepath.Base(baseName)
 
-		// check for extension markers
-		hasExtC := fileExists(baseName + ".ext_c_style_comments")
-		hasExtExpr := fileExists(baseName + ".ext_expression_arguments")
-		hasExtPunct := fileExists(baseName + ".ext_punctuator_arguments")
+		// build options from extension marker files
+		opts := confetti.Options{}
+		opts.CStyleComments = fileExists(baseName + ".ext_c_style_comments")
+		opts.ExpressionArguments = fileExists(baseName + ".ext_expression_arguments")
 
-		if hasExtC || hasExtExpr || hasExtPunct {
-			if *verbose {
-				fmt.Printf("SKIP %s (requires extensions)\n", testName)
+		punctFile := baseName + ".ext_punctuator_arguments"
+		if fileExists(punctFile) {
+			puncts, err := readPunctuators(punctFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading punctuators for %s: %v\n", testName, err)
+				failed++
+				continue
 			}
-			skipped++
-			continue
+			opts.PunctuatorArguments = puncts
 		}
 
 		// read input
@@ -59,9 +61,8 @@ func main() {
 		}
 
 		// parse
-		parser, err := confetti.NewParser(string(input))
+		parser, err := confetti.NewParserWithOptions(string(input), opts)
 		if err != nil {
-			// lexer error
 			if fileExists(baseName + ".fail") {
 				if *verbose {
 					fmt.Printf("PASS %s (failed as expected: %v)\n", testName, err)
@@ -76,7 +77,6 @@ func main() {
 
 		unit, err := parser.Parse()
 		if err != nil {
-			// parser error
 			if fileExists(baseName + ".fail") {
 				if *verbose {
 					fmt.Printf("PASS %s (failed as expected: %v)\n", testName, err)
@@ -128,16 +128,31 @@ func main() {
 		}
 	}
 
-	// summary
 	fmt.Printf("\n===== Results =====\n")
 	fmt.Printf("Passed:  %d\n", passed)
 	fmt.Printf("Failed:  %d\n", failed)
-	fmt.Printf("Skipped: %d (extensions not supported)\n", skipped)
-	fmt.Printf("Total:   %d\n", passed+failed+skipped)
+	fmt.Printf("Total:   %d\n", passed+failed)
 
 	if failed > 0 {
 		os.Exit(1)
 	}
+}
+
+// readPunctuators reads the punctuator list from an .ext_punctuator_arguments file.
+// Each non-empty line is one punctuator.
+func readPunctuators(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	var puncts []string
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		if line != "" {
+			puncts = append(puncts, line)
+		}
+	}
+	return puncts, nil
 }
 
 func normalizeLineEndings(s string) string {
@@ -172,7 +187,6 @@ func showDiff(expected, actual string) {
 			fmt.Printf("  Expected: %q (len=%d)\n", expLine, len(expLine))
 			fmt.Printf("  Actual:   %q (len=%d)\n", actLine, len(actLine))
 
-			// Show hex for first difference
 			minLen := len(expLine)
 			if len(actLine) < minLen {
 				minLen = len(actLine)

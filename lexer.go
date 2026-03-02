@@ -2,26 +2,43 @@ package confetti
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
 
 // Lexer tokenizes Confetti source text
 type Lexer struct {
-	input  string
-	pos    int
-	line   int
-	column int
+	input        string
+	pos          int
+	line         int
+	column       int
+	opts         Options
+	sortedPuncts []string // PunctuatorArguments sorted by length descending (maximal munch)
 }
 
-// NewLexer creates a new lexer
+// NewLexer creates a new lexer with no extensions enabled.
 func NewLexer(input string) *Lexer {
-	return &Lexer{
+	return NewLexerWithOptions(input, Options{})
+}
+
+// NewLexerWithOptions creates a new lexer with the given extension options.
+func NewLexerWithOptions(input string, opts Options) *Lexer {
+	l := &Lexer{
 		input:  input,
 		pos:    0,
 		line:   1,
 		column: 1,
+		opts:   opts,
 	}
+	if len(opts.PunctuatorArguments) > 0 {
+		l.sortedPuncts = make([]string, len(opts.PunctuatorArguments))
+		copy(l.sortedPuncts, opts.PunctuatorArguments)
+		sort.Slice(l.sortedPuncts, func(i, j int) bool {
+			return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
+		})
+	}
+	return l
 }
 
 // NextToken returns the next token
@@ -46,14 +63,10 @@ func (l *Lexer) NextToken() (Token, error) {
 	r := l.peek()
 
 	// control-Z (SUB, 0x1A) after whitespace/at start of token is treated as EOF
-	// but if we haven't consumed any real tokens yet, check if it's truly at end
 	if r == '\x1A' {
-		// check if there's anything after Control-Z
 		if l.pos+1 < len(l.input) {
-			// control-Z in middle of file is forbidden
 			return Token{}, fmt.Errorf("forbidden character at line %d, column %d", l.line, l.column)
 		}
-		// control-Z at actual end of file is treated as EOF
 		return l.makeToken(TokenEOF, ""), nil
 	}
 
@@ -67,7 +80,18 @@ func (l *Lexer) NextToken() (Token, error) {
 		return l.scanNewline()
 	}
 
-	// comment
+	// C-style comments (Annex A): // and /* */
+	if l.opts.CStyleComments && r == '/' {
+		next := l.peekSecond()
+		if next == '/' {
+			return l.scanCStyleLineComment()
+		}
+		if next == '*' {
+			return l.scanCStyleBlockComment()
+		}
+	}
+
+	// hash comment
 	if r == '#' {
 		return l.scanComment()
 	}
@@ -93,6 +117,16 @@ func (l *Lexer) NextToken() (Token, error) {
 		return tok, nil
 	}
 
+	// expression argument (Annex B)
+	if l.opts.ExpressionArguments && r == '(' {
+		return l.scanExpressionArgument()
+	}
+
+	// punctuator argument (Annex C) — checked before simple argument
+	if len(l.sortedPuncts) > 0 && l.matchesPunctuator() {
+		return l.scanPunctuatorArgument()
+	}
+
 	// quoted argument
 	if r == '"' {
 		return l.scanQuotedArgument()
@@ -111,6 +145,19 @@ func (l *Lexer) peek() rune {
 		return 0
 	}
 	r, _ := utf8.DecodeRuneInString(l.input[l.pos:])
+	return r
+}
+
+// peekSecond returns the rune after the current one without advancing.
+func (l *Lexer) peekSecond() rune {
+	if l.pos >= len(l.input) {
+		return 0
+	}
+	_, size := utf8.DecodeRuneInString(l.input[l.pos:])
+	if l.pos+size >= len(l.input) {
+		return 0
+	}
+	r, _ := utf8.DecodeRuneInString(l.input[l.pos+size:])
 	return r
 }
 
@@ -177,6 +224,142 @@ func (l *Lexer) scanComment() (Token, error) {
 	return l.makeToken(TokenComment, value), nil
 }
 
+// scanCStyleLineComment scans a // single-line comment (Annex A).
+func (l *Lexer) scanCStyleLineComment() (Token, error) {
+	start := l.pos
+	l.advance() // skip first '/'
+	l.advance() // skip second '/'
+
+	for l.pos < len(l.input) {
+		r := l.peek()
+		if IsLineTerminator(r) {
+			break
+		}
+		if IsForbidden(r) {
+			return Token{}, fmt.Errorf("forbidden character in comment at line %d", l.line)
+		}
+		l.advance()
+	}
+
+	value := l.input[start:l.pos]
+	return l.makeToken(TokenComment, value), nil
+}
+
+// scanCStyleBlockComment scans a /* ... */ block comment (Annex A).
+func (l *Lexer) scanCStyleBlockComment() (Token, error) {
+	startLine := l.line
+	start := l.pos
+	l.advance() // skip '/'
+	l.advance() // skip '*'
+
+	for l.pos < len(l.input) {
+		r := l.peek()
+
+		// check for closing */
+		if r == '*' && l.peekSecond() == '/' {
+			l.advance() // skip '*'
+			l.advance() // skip '/'
+			value := l.input[start:l.pos]
+			return l.makeToken(TokenComment, value), nil
+		}
+
+		if IsForbidden(r) {
+			return Token{}, fmt.Errorf("forbidden character in comment at line %d", l.line)
+		}
+
+		if IsLineTerminator(r) {
+			consumed := l.advance()
+			if consumed == '\r' && l.peek() == '\n' {
+				l.advance()
+			}
+			l.line++
+			l.column = 1
+			continue
+		}
+
+		l.advance()
+	}
+
+	return Token{}, fmt.Errorf("unterminated block comment starting at line %d", startLine)
+}
+
+// scanExpressionArgument scans a (expr) argument with balanced parentheses (Annex B).
+func (l *Lexer) scanExpressionArgument() (Token, error) {
+	tok := l.makeToken(TokenArgument, "")
+	l.advance() // skip opening '('
+
+	var buf strings.Builder
+	depth := 1
+
+	for l.pos < len(l.input) {
+		r := l.peek()
+
+		if r == '(' {
+			depth++
+			buf.WriteRune(r)
+			l.advance()
+			continue
+		}
+
+		if r == ')' {
+			depth--
+			if depth == 0 {
+				l.advance() // skip closing ')'
+				tok.Value = buf.String()
+				return tok, nil
+			}
+			buf.WriteRune(r)
+			l.advance()
+			continue
+		}
+
+		if IsForbidden(r) {
+			return Token{}, fmt.Errorf("forbidden character in expression at line %d", l.line)
+		}
+
+		if IsLineTerminator(r) {
+			consumed := l.advance()
+			if consumed == '\r' && l.peek() == '\n' {
+				l.advance()
+			}
+			l.line++
+			l.column = 1
+			buf.WriteRune('\n')
+			continue
+		}
+
+		buf.WriteRune(r)
+		l.advance()
+	}
+
+	return Token{}, fmt.Errorf("unterminated expression argument at line %d", l.line)
+}
+
+// matchesPunctuator reports whether the current position starts a punctuator argument.
+func (l *Lexer) matchesPunctuator() bool {
+	for _, p := range l.sortedPuncts {
+		if strings.HasPrefix(l.input[l.pos:], p) {
+			return true
+		}
+	}
+	return false
+}
+
+// scanPunctuatorArgument emits the longest matching punctuator argument (Annex C).
+func (l *Lexer) scanPunctuatorArgument() (Token, error) {
+	tok := l.makeToken(TokenArgument, "")
+	for _, punct := range l.sortedPuncts {
+		if strings.HasPrefix(l.input[l.pos:], punct) {
+			tok.Value = punct
+			for range punct { // iterates once per rune
+				l.advance()
+			}
+			return tok, nil
+		}
+	}
+	return Token{}, fmt.Errorf("internal error: no punctuator matched at line %d", l.line)
+}
+
 func (l *Lexer) scanSimpleArgument() (Token, error) {
 	var buf strings.Builder
 	tok := l.makeToken(TokenArgument, "")
@@ -192,21 +375,15 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 			// line continuation - only allowed if buffer is empty (standalone backslash)
 			if IsLineTerminator(next) {
 				if buf.Len() > 0 {
-					// backslash at end of argument followed by newline is an error
 					return Token{}, fmt.Errorf("illegal escape character")
 				}
-				// consume the line terminator
 				term := l.advance()
 				if term == '\r' && l.peek() == '\n' {
 					l.advance()
 				}
 				l.line++
 				l.column = 1
-
-				// skip whitespace after line continuation
 				l.skipWhitespace()
-
-				// return special token for line continuation
 				return l.makeToken(TokenLineContinuation, ""), nil
 			}
 
@@ -218,6 +395,24 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 			}
 
 			return Token{}, fmt.Errorf("invalid escape sequence at line %d, column %d", l.line, l.column)
+		}
+
+		// c-style comment start terminates the argument (Annex A)
+		if l.opts.CStyleComments && r == '/' && l.peekSecond() == '/' {
+			break
+		}
+		if l.opts.CStyleComments && r == '/' && l.peekSecond() == '*' {
+			break
+		}
+
+		// expression argument start terminates the simple argument (Annex B)
+		if l.opts.ExpressionArguments && r == '(' {
+			break
+		}
+
+		// punctuator argument start terminates the simple argument (Annex C)
+		if len(l.sortedPuncts) > 0 && l.matchesPunctuator() {
+			break
 		}
 
 		if !IsArgumentChar(r) {
@@ -271,15 +466,13 @@ func (l *Lexer) scanSingleQuoted() (Token, error) {
 
 			// line continuation: backslash followed by line terminator
 			if IsLineTerminator(next) {
-				term := l.advance() // consume the line terminator
-				// handle CRLF as single line terminator
+				term := l.advance()
 				if term == '\r' && l.peek() == '\n' {
-					l.advance() // consume the LF after CR
+					l.advance()
 				}
-				// after line continuation, update line counter
 				l.line++
 				l.column = 1
-				continue // skip the newline, don't add to buffer
+				continue
 			}
 
 			// escaped character
@@ -292,7 +485,7 @@ func (l *Lexer) scanSingleQuoted() (Token, error) {
 			return Token{}, fmt.Errorf("invalid escape in quoted string at line %d", l.line)
 		}
 
-		// now check for unescaped newlines (which are errors)
+		// unescaped newlines are errors in single-quoted strings
 		if IsLineTerminator(r) {
 			return Token{}, fmt.Errorf("unexpected newline in single-quoted string at line %d", l.line)
 		}

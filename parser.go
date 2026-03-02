@@ -8,10 +8,15 @@ type Parser struct {
 	current Token
 }
 
-// NewParser creates a new parser
+// NewParser creates a new parser with no extensions enabled.
 func NewParser(input string) (*Parser, error) {
+	return NewParserWithOptions(input, Options{})
+}
+
+// NewParserWithOptions creates a new parser with the given extension options.
+func NewParserWithOptions(input string, opts Options) (*Parser, error) {
 	p := &Parser{
-		lexer: NewLexer(input),
+		lexer: NewLexerWithOptions(input, opts),
 	}
 
 	// load first token

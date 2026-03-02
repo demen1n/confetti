@@ -286,3 +286,137 @@ func TestLexer_MixedWhitespace(t *testing.T) {
 		t.Fatalf("whitespace not properly skipped")
 	}
 }
+
+func collectTokensWithOpts(t *testing.T, src string, opts Options) ([]Token, error) {
+	t.Helper()
+	lx := NewLexerWithOptions(src, opts)
+
+	var toks []Token
+	for {
+		tok, err := lx.NextToken()
+		if err != nil {
+			return nil, err
+		}
+		toks = append(toks, tok)
+		if tok.Type == TokenEOF {
+			break
+		}
+	}
+	return toks, nil
+}
+
+func TestLexer_CStyleLineComment(t *testing.T) {
+	opts := Options{CStyleComments: true}
+	toks, err := collectTokensWithOpts(t, "// comment\nfoo", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// comment token, newline, foo, EOF
+	if toks[0].Type != TokenComment {
+		t.Fatalf("expected comment, got %v", toks[0].Type)
+	}
+	if toks[2].Value != "foo" {
+		t.Fatalf("expected foo, got %q", toks[2].Value)
+	}
+}
+
+func TestLexer_CStyleBlockComment(t *testing.T) {
+	opts := Options{CStyleComments: true}
+	toks, err := collectTokensWithOpts(t, "foo /* block */ bar", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	args := []string{}
+	for _, tok := range toks {
+		if tok.Type == TokenArgument {
+			args = append(args, tok.Value)
+		}
+	}
+	if len(args) != 2 || args[0] != "foo" || args[1] != "bar" {
+		t.Fatalf("expected [foo bar], got %v", args)
+	}
+}
+
+func TestLexer_SlashWithoutCStyleComments(t *testing.T) {
+	// lone '/' is still a valid argument char without C-style comments enabled
+	toks, err := collectTokens(t, "http://example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if toks[0].Value != "http://example.com" {
+		t.Fatalf("expected full URL argument, got %q", toks[0].Value)
+	}
+}
+
+func TestLexer_ExpressionArgument(t *testing.T) {
+	opts := Options{ExpressionArguments: true}
+	toks, err := collectTokensWithOpts(t, "(1 + 2)", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if toks[0].Type != TokenArgument || toks[0].Value != "1 + 2" {
+		t.Fatalf("expected argument '1 + 2', got type=%v value=%q", toks[0].Type, toks[0].Value)
+	}
+}
+
+func TestLexer_ExpressionArgument_Nested(t *testing.T) {
+	opts := Options{ExpressionArguments: true}
+	toks, err := collectTokensWithOpts(t, "(a && (b + c))", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if toks[0].Value != "a && (b + c)" {
+		t.Fatalf("expected 'a && (b + c)', got %q", toks[0].Value)
+	}
+}
+
+func TestLexer_ExpressionArgument_TerminatesSimpleArg(t *testing.T) {
+	opts := Options{ExpressionArguments: true}
+	toks, err := collectTokensWithOpts(t, "foo(bar)", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	args := []string{}
+	for _, tok := range toks {
+		if tok.Type == TokenArgument {
+			args = append(args, tok.Value)
+		}
+	}
+	if len(args) != 2 || args[0] != "foo" || args[1] != "bar" {
+		t.Fatalf("expected [foo bar], got %v", args)
+	}
+}
+
+func TestLexer_PunctuatorArgument(t *testing.T) {
+	opts := Options{PunctuatorArguments: []string{"="}}
+	toks, err := collectTokensWithOpts(t, "x=y", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	args := []string{}
+	for _, tok := range toks {
+		if tok.Type == TokenArgument {
+			args = append(args, tok.Value)
+		}
+	}
+	if len(args) != 3 || args[0] != "x" || args[1] != "=" || args[2] != "y" {
+		t.Fatalf("expected [x = y], got %v", args)
+	}
+}
+
+func TestLexer_PunctuatorArgument_MaximalMunch(t *testing.T) {
+	opts := Options{PunctuatorArguments: []string{"=", "==", "==="}}
+	toks, err := collectTokensWithOpts(t, "x===y", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	args := []string{}
+	for _, tok := range toks {
+		if tok.Type == TokenArgument {
+			args = append(args, tok.Value)
+		}
+	}
+	if len(args) != 3 || args[0] != "x" || args[1] != "===" || args[2] != "y" {
+		t.Fatalf("expected [x === y], got %v", args)
+	}
+}
