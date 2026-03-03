@@ -83,6 +83,76 @@ func main() {
 }
 ```
 
+## Decoding into Go structs
+
+Use `Unmarshal` (or `Decode` with a pre-parsed `*ConfigurationUnit`) to populate typed Go structs — similar to `encoding/json`.
+
+**Config file (`app.conf`):**
+```confetti
+host example.com
+port 8080
+debug true
+tags foo bar baz
+
+server web {
+    timeout 30
+}
+server api {
+    timeout 60
+}
+```
+
+**Go code:**
+```go
+type Config struct {
+    Host    string   `conf:"host"`
+    Port    int      `conf:"port"`
+    Debug   bool     `conf:"debug"`
+    Tags    []string `conf:"tags"`
+    Servers []Server `conf:"server"`
+}
+
+type Server struct {
+    Name    string `conf:",arg"` // captures inline block argument ("web", "api")
+    Timeout int    `conf:"timeout"`
+}
+
+data, _ := os.ReadFile("app.conf")
+var cfg Config
+if err := confetti.Unmarshal(string(data), &cfg); err != nil {
+    log.Fatal(err)
+}
+// cfg.Host      → "example.com"
+// cfg.Port      → 8080
+// cfg.Debug     → true
+// cfg.Tags      → ["foo", "bar", "baz"]
+// cfg.Servers   → [{Name:"web", Timeout:30}, {Name:"api", Timeout:60}]
+```
+
+### Struct tags
+
+| Tag | Meaning |
+|-----|---------|
+| `conf:"name"` | Map field to directive named `name` |
+| `conf:",arg"` | Capture the inline args of a block directive |
+| `conf:"-"` | Skip this field entirely |
+| _(no tag)_ | Use the lowercase field name |
+
+### Supported field types
+
+| Go type | Source |
+|---------|--------|
+| `string` | First argument after the directive name |
+| `int`, `int8` … `int64` | Parsed with `strconv.ParseInt` |
+| `uint`, `uint8` … `uint64` | Parsed with `strconv.ParseUint` |
+| `float32`, `float64` | Parsed with `strconv.ParseFloat` |
+| `bool` | Parsed with `strconv.ParseBool` |
+| `[]string` | All arguments after the directive name |
+| `struct` / `*struct` | Decoded from the directive's subdirectives |
+| `[]Struct` / `[]*Struct` | Each matching directive appends a new element |
+
+---
+
 ## API
 
 ### Parsing
