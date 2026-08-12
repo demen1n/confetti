@@ -2,3 +2,4 @@ tests
 .idea
 tests/conformance/
 coverage.out
+coverage.tmp.out
