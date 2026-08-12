@@ -1,3 +1,4 @@
 tests
 .idea
 tests/conformance/
+coverage.out

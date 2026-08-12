@@ -16,10 +16,10 @@ func decodeOK(t *testing.T, src string, v any) {
 // Test 1: Simple scalar fields — string, int, bool, float64
 func TestDecode_SimpleScalars(t *testing.T) {
 	type Config struct {
-		Host    string  `conf:"host"`
-		Port    int     `conf:"port"`
-		Debug   bool    `conf:"debug"`
-		Ratio   float64 `conf:"ratio"`
+		Host  string  `conf:"host"`
+		Port  int     `conf:"port"`
+		Debug bool    `conf:"debug"`
+		Ratio float64 `conf:"ratio"`
 	}
 	src := "host example.com\nport 8080\ndebug true\nratio 1.5\n"
 	var got Config

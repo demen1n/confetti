@@ -39,8 +39,7 @@ func Unmarshal(input string, v any) error {
 
 // fieldInfo holds metadata about a struct field relevant to decoding.
 type fieldInfo struct {
-	index    int
-	argField bool // true if this field bears the ",arg" tag
+	index int
 }
 
 // structMeta is the result of inspecting a struct type.
@@ -126,7 +125,7 @@ func decodeField(fv reflect.Value, fieldType reflect.Type, extraArgs []string, s
 			return nil
 		}
 		// []Struct or []*Struct — append a new element decoded from subdirectives
-		return appendStructElem(fv, fieldType, elemType, extraArgs, subdirs)
+		return appendStructElem(fv, elemType, extraArgs, subdirs)
 
 	case reflect.Struct:
 		return decodeBlockIntoStruct(fv, extraArgs, subdirs)
@@ -150,7 +149,7 @@ func decodeField(fv reflect.Value, fieldType reflect.Type, extraArgs []string, s
 }
 
 // appendStructElem decodes a block directive into a new slice element and appends it.
-func appendStructElem(fv reflect.Value, sliceType, elemType reflect.Type, extraArgs []string, subdirs []Directive) error {
+func appendStructElem(fv reflect.Value, elemType reflect.Type, extraArgs []string, subdirs []Directive) error {
 	isPtr := elemType.Kind() == reflect.Pointer
 	var structType reflect.Type
 	if isPtr {

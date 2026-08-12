@@ -1,3 +1,4 @@
+// Package confetti implements a lexer and parser for the Confetti configuration language.
 package confetti
 
 import (
@@ -58,6 +59,7 @@ type Directive struct {
 // TokenType represents the type of token
 type TokenType int
 
+// Token type constants.
 const (
 	TokenEOF TokenType = iota
 	TokenNewline

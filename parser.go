@@ -78,9 +78,8 @@ func (p *Parser) parseDirectives(insideBlock bool) ([]Directive, error) {
 		if p.current.Type == TokenRightBrace {
 			if insideBlock {
 				break // expected closing brace
-			} else {
-				return nil, fmt.Errorf("unexpected '}' without matching '{' at line %d", p.current.Line)
 			}
+			return nil, fmt.Errorf("unexpected '}' without matching '{' at line %d", p.current.Line)
 		}
 
 		directive, err := p.parseDirective()
@@ -110,10 +109,7 @@ func (p *Parser) parseDirective() (Directive, error) {
 
 	// check what comes after arguments (possibly with newlines before block)
 	// save current position to check for block
-	hasNewlines := false
-	if p.current.Type == TokenNewline {
-		hasNewlines = true
-	}
+	hasNewlines := p.current.Type == TokenNewline
 
 	// skip newlines to peek ahead
 	for p.current.Type == TokenNewline {

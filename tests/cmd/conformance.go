@@ -1,3 +1,4 @@
+// Command conformance runs the official Confetti conformance test suite against this parser.
 package main
 
 import (
