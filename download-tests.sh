@@ -9,6 +9,7 @@ NC='\033[0m' # No Color
 
 REPO_URL="https://github.com/hgs3/confetti"
 TESTS_DIR="tests/conformance"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 TEMP_DIR=$(mktemp -d)
 
 echo -e "${BLUE}📦 Downloading Confetti conformance tests...${NC}"
@@ -28,16 +29,16 @@ cd "$TEMP_DIR"
 git sparse-checkout set tests/conformance
 
 # Create tests directory if it doesn't exist
-mkdir -p "$(dirname "$0")/$TESTS_DIR"
+mkdir -p "$SCRIPT_DIR/$TESTS_DIR"
 
 # Copy tests
 echo -e "${BLUE}📋 Copying test files...${NC}"
-cp -r tests/conformance/* "$(dirname "$0")/$TESTS_DIR/"
+cp -r tests/conformance/* "$SCRIPT_DIR/$TESTS_DIR/"
 
 # Count test files
-CONF_COUNT=$(find "$(dirname "$0")/$TESTS_DIR" -name "*.conf" | wc -l)
-PASS_COUNT=$(find "$(dirname "$0")/$TESTS_DIR" -name "*.pass" | wc -l)
-FAIL_COUNT=$(find "$(dirname "$0")/$TESTS_DIR" -name "*.fail" | wc -l)
+CONF_COUNT=$(find "$SCRIPT_DIR/$TESTS_DIR" -name "*.conf" | wc -l)
+PASS_COUNT=$(find "$SCRIPT_DIR/$TESTS_DIR" -name "*.pass" | wc -l)
+FAIL_COUNT=$(find "$SCRIPT_DIR/$TESTS_DIR" -name "*.fail" | wc -l)
 
 echo ""
 echo -e "${GREEN}✅ Done!${NC}"
