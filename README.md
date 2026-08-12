@@ -3,7 +3,8 @@
 A clean, fully conformant Go implementation of the [Confetti configuration language](https://confetti.hgs3.me/).
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/demen1n/confetti.svg)](https://pkg.go.dev/github.com/demen1n/confetti)
-[![Go Report Card](https://goreportcard.com/badge/github.com/demen1n/confetti)](https://goreportcard.com/report/github.com/demen1n/confetti)
+[![CI](https://github.com/demen1n/confetti/actions/workflows/ci.yml/badge.svg)](https://github.com/demen1n/confetti/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/demen1n/confetti/branch/main/graph/badge.svg)](https://codecov.io/gh/demen1n/confetti)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What's Confetti?
