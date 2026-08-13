@@ -1,4 +1,3 @@
-// Package confetti implements a lexer and parser for the Confetti configuration language.
 package confetti
 
 import (
