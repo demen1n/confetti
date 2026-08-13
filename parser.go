@@ -9,12 +9,20 @@ type Parser struct {
 }
 
 // NewParser creates a new parser with no extensions enabled.
+//
+// Deprecated: Use Parse instead.
 func NewParser(input string) (*Parser, error) {
-	return NewParserWithOptions(input, Options{})
+	return newParser(input, Options{})
 }
 
 // NewParserWithOptions creates a new parser with the given extension options.
+//
+// Deprecated: Use ParseWithOptions instead.
 func NewParserWithOptions(input string, opts Options) (*Parser, error) {
+	return newParser(input, opts)
+}
+
+func newParser(input string, opts Options) (*Parser, error) {
 	p := &Parser{
 		lexer: NewLexerWithOptions(input, opts),
 	}
@@ -25,6 +33,11 @@ func NewParserWithOptions(input string, opts Options) (*Parser, error) {
 	}
 
 	return p, nil
+}
+
+// errf returns a *ParseError at the current token's position.
+func (p *Parser) errf(format string, args ...any) error {
+	return &ParseError{Line: p.current.Line, Column: p.current.Column, Msg: fmt.Sprintf(format, args...)}
 }
 
 // Parse parses the input and returns a ConfigurationUnit
@@ -79,7 +92,7 @@ func (p *Parser) parseDirectives(insideBlock bool) ([]Directive, error) {
 			if insideBlock {
 				break // expected closing brace
 			}
-			return nil, fmt.Errorf("unexpected '}' without matching '{' at line %d", p.current.Line)
+			return nil, p.errf("unexpected '}' without matching '{'")
 		}
 
 		directive, err := p.parseDirective()
@@ -100,7 +113,7 @@ func (p *Parser) parseDirective() (Directive, error) {
 	}
 
 	if len(args) == 0 {
-		return Directive{}, fmt.Errorf("directive must have at least one argument at line %d", p.current.Line)
+		return Directive{}, p.errf("directive must have at least one argument")
 	}
 
 	directive := Directive{
@@ -156,7 +169,7 @@ func (p *Parser) parseDirective() (Directive, error) {
 		return directive, nil
 	}
 
-	return Directive{}, fmt.Errorf("expected newline, semicolon, or block after directive at line %d, got %v", p.current.Line, p.current.Type)
+	return Directive{}, p.errf("expected newline, semicolon, or block after directive, got %s", p.current.Type)
 }
 
 func (p *Parser) parseArguments() ([]string, error) {
@@ -183,7 +196,7 @@ func (p *Parser) parseArguments() ([]string, error) {
 func (p *Parser) parseBlock() ([]Directive, error) {
 	// consume '{'
 	if p.current.Type != TokenLeftBrace {
-		return nil, fmt.Errorf("expected '{' at line %d, got %v", p.current.Line, p.current.Type)
+		return nil, p.errf("expected '{', got %s", p.current.Type)
 	}
 
 	if err := p.advance(); err != nil {
@@ -198,7 +211,7 @@ func (p *Parser) parseBlock() ([]Directive, error) {
 
 	// consume '}'
 	if p.current.Type != TokenRightBrace {
-		return nil, fmt.Errorf("expected '}' at line %d, got %v", p.current.Line, p.current.Type)
+		return nil, p.errf("expected '}', got %s", p.current.Type)
 	}
 
 	if err := p.advance(); err != nil {

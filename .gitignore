@@ -3,3 +3,5 @@ tests
 tests/conformance/
 coverage.out
 coverage.tmp.out
+CLAUDE.md
+.DS_Store

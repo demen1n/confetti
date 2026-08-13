@@ -62,7 +62,7 @@ func main() {
 		}
 
 		// parse
-		parser, err := confetti.NewParserWithOptions(string(input), opts)
+		unit, err := confetti.ParseWithOptions(string(input), opts)
 		if err != nil {
 			if fileExists(baseName + ".fail") {
 				if *verbose {
@@ -70,21 +70,7 @@ func main() {
 				}
 				passed++
 			} else {
-				fmt.Printf("FAIL %s: unexpected lexer error: %v\n", testName, err)
-				failed++
-			}
-			continue
-		}
-
-		unit, err := parser.Parse()
-		if err != nil {
-			if fileExists(baseName + ".fail") {
-				if *verbose {
-					fmt.Printf("PASS %s (failed as expected: %v)\n", testName, err)
-				}
-				passed++
-			} else {
-				fmt.Printf("FAIL %s: unexpected parser error: %v\n", testName, err)
+				fmt.Printf("FAIL %s: unexpected parse error: %v\n", testName, err)
 				failed++
 			}
 			continue
