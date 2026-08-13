@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Decode populates v from an already-parsed *ConfigurationUnit.
@@ -24,15 +25,16 @@ func Decode(cfg *ConfigurationUnit, v any) error {
 	return decodeStruct(cfg.Directives, rv)
 }
 
-// Unmarshal parses input then calls Decode. Convenience wrapper.
+// Unmarshal parses input with no extensions enabled, then calls Decode.
 func Unmarshal(input string, v any) error {
-	p, err := NewParser(input)
+	return UnmarshalWithOptions(input, v, Options{})
+}
+
+// UnmarshalWithOptions parses input with the given extension options, then calls Decode.
+func UnmarshalWithOptions(input string, v any, opts Options) error {
+	cfg, err := ParseWithOptions(input, opts)
 	if err != nil {
-		return fmt.Errorf("confetti: Unmarshal parse init: %w", err)
-	}
-	cfg, err := p.Parse()
-	if err != nil {
-		return fmt.Errorf("confetti: Unmarshal parse: %w", err)
+		return err
 	}
 	return Decode(cfg, v)
 }
@@ -100,7 +102,7 @@ func decodeStruct(directives []Directive, rv reflect.Value) error {
 		fv := rv.Field(fi.index)
 		ft := t.Field(fi.index)
 
-		if err := decodeField(fv, ft.Type, extraArgs, dir.Subdirectives, meta.argFieldIdx, rv); err != nil {
+		if err := decodeField(fv, ft.Type, extraArgs, dir.Subdirectives); err != nil {
 			return fmt.Errorf("confetti: field %q: %w", key, err)
 		}
 	}
@@ -108,24 +110,17 @@ func decodeStruct(directives []Directive, rv reflect.Value) error {
 }
 
 // decodeField sets field fv (of type fieldType) from extraArgs and subdirectives.
-// argFieldIdx and parentRV are used for the parent struct's ",arg" field when decoding
-// block directives whose args target the parent — but at this call level we're targeting fv
-// itself, so argFieldIdx / parentRV are not used here. They live in decodeStruct above.
-func decodeField(fv reflect.Value, fieldType reflect.Type, extraArgs []string, subdirs []Directive, _ int, _ reflect.Value) error {
+func decodeField(fv reflect.Value, fieldType reflect.Type, extraArgs []string, subdirs []Directive) error {
 	switch fieldType.Kind() {
 	case reflect.Slice:
 		elemType := fieldType.Elem()
-		// []string  — collect all extra args
-		if elemType.Kind() == reflect.String {
-			sv := reflect.MakeSlice(fieldType, len(extraArgs), len(extraArgs))
-			for i, a := range extraArgs {
-				sv.Index(i).SetString(a)
-			}
-			fv.Set(sv)
-			return nil
-		}
 		// []Struct or []*Struct — append a new element decoded from subdirectives
-		return appendStructElem(fv, elemType, extraArgs, subdirs)
+		if elemType.Kind() == reflect.Struct ||
+			(elemType.Kind() == reflect.Pointer && elemType.Elem().Kind() == reflect.Struct) {
+			return appendStructElem(fv, elemType, extraArgs, subdirs)
+		}
+		// slice of scalars ([]string, []int, []time.Duration, ...) — collect all extra args
+		return setScalarSlice(fv, extraArgs)
 
 	case reflect.Struct:
 		return decodeBlockIntoStruct(fv, extraArgs, subdirs)
@@ -204,14 +199,8 @@ func setArgField(rv reflect.Value, argIdx int, args []string) error {
 			fv.SetString(args[0])
 		}
 	case reflect.Slice:
-		if fv.Type().Elem().Kind() == reflect.String {
-			sv := reflect.MakeSlice(fv.Type(), len(args), len(args))
-			for i, a := range args {
-				sv.Index(i).SetString(a)
-			}
-			fv.Set(sv)
-		} else {
-			return fmt.Errorf("unsupported ,arg slice element type %s", fv.Type().Elem().Kind())
+		if err := setScalarSlice(fv, args); err != nil {
+			return fmt.Errorf(",arg field: %w", err)
 		}
 	default:
 		return fmt.Errorf("unsupported ,arg field type %s", fv.Kind())
@@ -219,8 +208,30 @@ func setArgField(rv reflect.Value, argIdx int, args []string) error {
 	return nil
 }
 
+// setScalarSlice fills slice value fv with args, converting each element with setScalar.
+func setScalarSlice(fv reflect.Value, args []string) error {
+	sv := reflect.MakeSlice(fv.Type(), len(args), len(args))
+	for i, a := range args {
+		if err := setScalar(sv.Index(i), a); err != nil {
+			return fmt.Errorf("element %d: %w", i, err)
+		}
+	}
+	fv.Set(sv)
+	return nil
+}
+
+var durationType = reflect.TypeOf(time.Duration(0))
+
 // setScalar converts string s to the kind of rv and sets it.
 func setScalar(rv reflect.Value, s string) error {
+	if rv.Type() == durationType {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return fmt.Errorf("cannot parse %q as duration: %w", s, err)
+		}
+		rv.SetInt(int64(d))
+		return nil
+	}
 	switch rv.Kind() {
 	case reflect.String:
 		rv.SetString(s)

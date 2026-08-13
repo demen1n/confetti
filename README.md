@@ -64,12 +64,7 @@ func main() {
     }
     `
 
-    parser, err := confetti.NewParser(input)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    config, err := parser.Parse()
+    config, err := confetti.Parse(input)
     if err != nil {
         log.Fatal(err)
     }
@@ -148,7 +143,8 @@ if err := confetti.Unmarshal(string(data), &cfg); err != nil {
 | `uint`, `uint8` … `uint64` | Parsed with `strconv.ParseUint` |
 | `float32`, `float64` | Parsed with `strconv.ParseFloat` |
 | `bool` | Parsed with `strconv.ParseBool` |
-| `[]string` | All arguments after the directive name |
+| `time.Duration` | Parsed with `time.ParseDuration` (e.g. `30s`, `1h30m`) |
+| `[]string`, `[]int`, `[]float64`, … | All arguments after the directive name, each converted to the element type |
 | `struct` / `*struct` | Decoded from the directive's subdirectives |
 | `[]Struct` / `[]*Struct` | Each matching directive appends a new element |
 
@@ -160,13 +156,11 @@ if err := confetti.Unmarshal(string(data), &cfg); err != nil {
 
 ```go
 // Parse from string (no extensions)
-parser, err := confetti.NewParser(configString)
-config, err := parser.Parse()
+config, err := confetti.Parse(configString)
 
 // Parse from file
 data, err := os.ReadFile("config.conf")
-parser, err := confetti.NewParser(string(data))
-config, err := parser.Parse()
+config, err := confetti.Parse(string(data))
 
 // Parse with extensions enabled
 opts := confetti.Options{
@@ -174,8 +168,26 @@ opts := confetti.Options{
     ExpressionArguments: true,
     PunctuatorArguments: []string{":=", "="},
 }
-parser, err := confetti.NewParserWithOptions(configString, opts)
-config, err := parser.Parse()
+config, err := confetti.ParseWithOptions(configString, opts)
+
+// Decode into a struct with extensions enabled
+err := confetti.UnmarshalWithOptions(configString, &cfg, opts)
+```
+
+The older two-step API (`NewParser` / `NewParserWithOptions` + `Parse()`) still works but is deprecated in favour of the functions above.
+
+### Error handling
+
+Syntax errors are returned as `*confetti.ParseError` with 1-based position information:
+
+```go
+config, err := confetti.Parse(input)
+if err != nil {
+    var perr *confetti.ParseError
+    if errors.As(err, &perr) {
+        fmt.Printf("syntax error at %d:%d: %s\n", perr.Line, perr.Column, perr.Msg)
+    }
+}
 ```
 
 ### Data Structure

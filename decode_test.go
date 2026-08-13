@@ -2,7 +2,9 @@ package confetti
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 // decodeOK parses src then decodes into v; fails the test on any error.
@@ -267,6 +269,86 @@ func TestDecode_ImplicitFieldName(t *testing.T) {
 	var got Config
 	decodeOK(t, "host localhost\nport 9090\n", &got)
 	want := Config{Host: "localhost", Port: 9090}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// time.Duration fields parsed with time.ParseDuration
+func TestDecode_Duration(t *testing.T) {
+	type Config struct {
+		Timeout  time.Duration `conf:"timeout"`
+		Interval time.Duration `conf:"interval"`
+	}
+	var got Config
+	decodeOK(t, "timeout 30s\ninterval 1h30m\n", &got)
+	want := Config{Timeout: 30 * time.Second, Interval: 90 * time.Minute}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestDecode_DurationInvalid(t *testing.T) {
+	type Config struct {
+		Timeout time.Duration `conf:"timeout"`
+	}
+	var got Config
+	err := Unmarshal("timeout notaduration\n", &got)
+	if err == nil {
+		t.Fatal("expected error for invalid duration, got nil")
+	}
+	if !strings.Contains(err.Error(), "duration") {
+		t.Errorf("error %q does not mention duration", err.Error())
+	}
+}
+
+// Numeric and other scalar slices from extra args
+func TestDecode_ScalarSlices(t *testing.T) {
+	type Config struct {
+		Ports   []int           `conf:"ports"`
+		Weights []float64       `conf:"weights"`
+		Retries []time.Duration `conf:"retries"`
+		Flags   []bool          `conf:"flags"`
+	}
+	src := "ports 80 443 8080\nweights 0.5 1.5\nretries 1s 5s 30s\nflags true false\n"
+	var got Config
+	decodeOK(t, src, &got)
+	want := Config{
+		Ports:   []int{80, 443, 8080},
+		Weights: []float64{0.5, 1.5},
+		Retries: []time.Duration{time.Second, 5 * time.Second, 30 * time.Second},
+		Flags:   []bool{true, false},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestDecode_ScalarSliceInvalidElement(t *testing.T) {
+	type Config struct {
+		Ports []int `conf:"ports"`
+	}
+	var got Config
+	err := Unmarshal("ports 80 nope\n", &got)
+	if err == nil {
+		t.Fatal("expected error for invalid slice element, got nil")
+	}
+	if !strings.Contains(err.Error(), "element 1") {
+		t.Errorf("error %q does not point at element 1", err.Error())
+	}
+}
+
+// ,arg field as a non-string scalar slice
+func TestDecode_ArgFieldIntSlice(t *testing.T) {
+	type Range struct {
+		Bounds []int `conf:",arg"`
+	}
+	type Config struct {
+		Range Range `conf:"range"`
+	}
+	var got Config
+	decodeOK(t, "range 1 100 {\n}\n", &got)
+	want := Config{Range: Range{Bounds: []int{1, 100}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}

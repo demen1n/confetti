@@ -41,12 +41,22 @@ func NewLexerWithOptions(input string, opts Options) *Lexer {
 	return l
 }
 
+// errf returns a *ParseError at the lexer's current position.
+func (l *Lexer) errf(format string, args ...any) error {
+	return &ParseError{Line: l.line, Column: l.column, Msg: fmt.Sprintf(format, args...)}
+}
+
+// errAt returns a *ParseError at the given position.
+func (l *Lexer) errAt(line, column int, format string, args ...any) error {
+	return &ParseError{Line: line, Column: column, Msg: fmt.Sprintf(format, args...)}
+}
+
 // NextToken returns the next token
 func (l *Lexer) NextToken() (Token, error) {
 	// check for malformed UTF-8 on first call
 	if l.pos == 0 {
 		if !ValidateUTF8(l.input) {
-			return Token{}, fmt.Errorf("malformed UTF-8")
+			return Token{}, l.errf("malformed UTF-8")
 		}
 		// skip BOM at the beginning of file
 		if len(l.input) >= 3 && l.input[0:3] == "\xEF\xBB\xBF" {
@@ -65,14 +75,14 @@ func (l *Lexer) NextToken() (Token, error) {
 	// control-Z (SUB, 0x1A) after whitespace/at start of token is treated as EOF
 	if r == '\x1A' {
 		if l.pos+1 < len(l.input) {
-			return Token{}, fmt.Errorf("forbidden character at line %d, column %d", l.line, l.column)
+			return Token{}, l.errf("forbidden character")
 		}
 		return l.makeToken(TokenEOF, ""), nil
 	}
 
 	// check for forbidden characters
 	if IsForbidden(r) {
-		return Token{}, fmt.Errorf("forbidden character at line %d, column %d", l.line, l.column)
+		return Token{}, l.errf("forbidden character")
 	}
 
 	// line terminator
@@ -137,7 +147,7 @@ func (l *Lexer) NextToken() (Token, error) {
 		return l.scanSimpleArgument()
 	}
 
-	return Token{}, fmt.Errorf("unexpected character '%c' at line %d, column %d", r, l.line, l.column)
+	return Token{}, l.errf("unexpected character %q", r)
 }
 
 func (l *Lexer) peek() rune {
@@ -215,7 +225,7 @@ func (l *Lexer) scanComment() (Token, error) {
 			break
 		}
 		if IsForbidden(r) {
-			return Token{}, fmt.Errorf("forbidden character in comment at line %d", l.line)
+			return Token{}, l.errf("forbidden character in comment")
 		}
 		l.advance()
 	}
@@ -236,7 +246,7 @@ func (l *Lexer) scanCStyleLineComment() (Token, error) {
 			break
 		}
 		if IsForbidden(r) {
-			return Token{}, fmt.Errorf("forbidden character in comment at line %d", l.line)
+			return Token{}, l.errf("forbidden character in comment")
 		}
 		l.advance()
 	}
@@ -247,7 +257,7 @@ func (l *Lexer) scanCStyleLineComment() (Token, error) {
 
 // scanCStyleBlockComment scans a /* ... */ block comment (Annex A).
 func (l *Lexer) scanCStyleBlockComment() (Token, error) {
-	startLine := l.line
+	startLine, startCol := l.line, l.column
 	start := l.pos
 	l.advance() // skip '/'
 	l.advance() // skip '*'
@@ -264,7 +274,7 @@ func (l *Lexer) scanCStyleBlockComment() (Token, error) {
 		}
 
 		if IsForbidden(r) {
-			return Token{}, fmt.Errorf("forbidden character in comment at line %d", l.line)
+			return Token{}, l.errf("forbidden character in comment")
 		}
 
 		if IsLineTerminator(r) {
@@ -280,7 +290,7 @@ func (l *Lexer) scanCStyleBlockComment() (Token, error) {
 		l.advance()
 	}
 
-	return Token{}, fmt.Errorf("unterminated block comment starting at line %d", startLine)
+	return Token{}, l.errAt(startLine, startCol, "unterminated block comment")
 }
 
 // scanExpressionArgument scans a (expr) argument with balanced parentheses (Annex B).
@@ -314,7 +324,7 @@ func (l *Lexer) scanExpressionArgument() (Token, error) {
 		}
 
 		if IsForbidden(r) {
-			return Token{}, fmt.Errorf("forbidden character in expression at line %d", l.line)
+			return Token{}, l.errf("forbidden character in expression")
 		}
 
 		if IsLineTerminator(r) {
@@ -332,7 +342,7 @@ func (l *Lexer) scanExpressionArgument() (Token, error) {
 		l.advance()
 	}
 
-	return Token{}, fmt.Errorf("unterminated expression argument at line %d", l.line)
+	return Token{}, l.errf("unterminated expression argument")
 }
 
 // matchesPunctuator reports whether the current position starts a punctuator argument.
@@ -357,7 +367,7 @@ func (l *Lexer) scanPunctuatorArgument() (Token, error) {
 			return tok, nil
 		}
 	}
-	return Token{}, fmt.Errorf("internal error: no punctuator matched at line %d", l.line)
+	return Token{}, l.errf("internal error: no punctuator matched")
 }
 
 func (l *Lexer) scanSimpleArgument() (Token, error) {
@@ -375,7 +385,7 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 			// line continuation - only allowed if buffer is empty (standalone backslash)
 			if IsLineTerminator(next) {
 				if buf.Len() > 0 {
-					return Token{}, fmt.Errorf("illegal escape character")
+					return Token{}, l.errf("illegal escape character")
 				}
 				term := l.advance()
 				if term == '\r' && l.peek() == '\n' {
@@ -394,7 +404,7 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 				continue
 			}
 
-			return Token{}, fmt.Errorf("invalid escape sequence at line %d, column %d", l.line, l.column)
+			return Token{}, l.errf("invalid escape sequence")
 		}
 
 		// c-style comment start terminates the argument (Annex A)
@@ -482,23 +492,23 @@ func (l *Lexer) scanSingleQuoted() (Token, error) {
 				continue
 			}
 
-			return Token{}, fmt.Errorf("invalid escape in quoted string at line %d", l.line)
+			return Token{}, l.errf("invalid escape in quoted string")
 		}
 
 		// unescaped newlines are errors in single-quoted strings
 		if IsLineTerminator(r) {
-			return Token{}, fmt.Errorf("unexpected newline in single-quoted string at line %d", l.line)
+			return Token{}, l.errf("unexpected newline in single-quoted string")
 		}
 
 		if IsForbidden(r) {
-			return Token{}, fmt.Errorf("forbidden character in string at line %d", l.line)
+			return Token{}, l.errf("forbidden character in string")
 		}
 
 		buf.WriteRune(r)
 		l.advance()
 	}
 
-	return Token{}, fmt.Errorf("unterminated quoted string at line %d", l.line)
+	return Token{}, l.errf("unterminated quoted string")
 }
 
 func (l *Lexer) scanTripleQuoted() (Token, error) {
@@ -530,16 +540,16 @@ func (l *Lexer) scanTripleQuoted() (Token, error) {
 				l.advance()
 				continue
 			}
-			return Token{}, fmt.Errorf("invalid escape in triple-quoted string at line %d", l.line)
+			return Token{}, l.errf("invalid escape in triple-quoted string")
 		}
 
 		if IsForbidden(r) {
-			return Token{}, fmt.Errorf("forbidden character in string at line %d", l.line)
+			return Token{}, l.errf("forbidden character in string")
 		}
 
 		buf.WriteRune(r)
 		l.advance()
 	}
 
-	return Token{}, fmt.Errorf("unterminated triple-quoted string at line %d", l.line)
+	return Token{}, l.errf("unterminated triple-quoted string")
 }

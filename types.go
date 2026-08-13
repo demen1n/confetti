@@ -71,6 +71,29 @@ const (
 	TokenLineContinuation // special token for standalone backslash before newline
 )
 
+// String returns a human-readable name for the token type, used in error messages.
+func (t TokenType) String() string {
+	switch t {
+	case TokenEOF:
+		return "end of input"
+	case TokenNewline:
+		return "newline"
+	case TokenSemicolon:
+		return "';'"
+	case TokenLeftBrace:
+		return "'{'"
+	case TokenRightBrace:
+		return "'}'"
+	case TokenArgument:
+		return "argument"
+	case TokenComment:
+		return "comment"
+	case TokenLineContinuation:
+		return "line continuation"
+	}
+	return "unknown token"
+}
+
 // Token represents a lexical token
 type Token struct {
 	Type   TokenType
