@@ -102,6 +102,30 @@ func TestLexer_QuotedArguments_SingleAndTriple(t *testing.T) {
 	}
 }
 
+func TestLexer_TripleQuoted_TracksLineNumber(t *testing.T) {
+	// two embedded newlines inside the triple-quoted string, then a
+	// forbidden character on what should be reported as line 4.
+	src := "x \"\"\"\n\n\"\"\"\nbad \x01"
+	lx := NewLexer(src)
+
+	for {
+		tok, err := lx.NextToken()
+		if err != nil {
+			perr, ok := err.(*ParseError)
+			if !ok {
+				t.Fatalf("expected *ParseError, got %T: %v", err, err)
+			}
+			if perr.Line != 4 || perr.Column != 5 {
+				t.Fatalf("expected error at line 4, column 5 (positions after the triple-quoted string must account for its embedded newlines), got %d:%d", perr.Line, perr.Column)
+			}
+			return
+		}
+		if tok.Type == TokenEOF {
+			t.Fatalf("expected forbidden-character error, reached EOF instead")
+		}
+	}
+}
+
 func TestLexer_UnexpectedChar(t *testing.T) {
 	// include a reserved punctuator inside a bare word -> should stop before it
 	src := "key{"

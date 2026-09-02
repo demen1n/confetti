@@ -548,6 +548,18 @@ func (l *Lexer) scanTripleQuoted() (Token, error) {
 			return Token{}, l.errf("forbidden character in string")
 		}
 
+		if IsLineTerminator(r) {
+			buf.WriteRune(r)
+			consumed := l.advance()
+			if consumed == '\r' && l.peek() == '\n' {
+				buf.WriteRune('\n')
+				l.advance()
+			}
+			l.line++
+			l.column = 1
+			continue
+		}
+
 		buf.WriteRune(r)
 		l.advance()
 	}
