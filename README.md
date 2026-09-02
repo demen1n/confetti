@@ -227,7 +227,7 @@ type Options struct {
 - **Simple directives**: `key value1 value2`
 - **Block directives**: `section { nested directives }`
 - **Quoted strings**: `"hello world"` and `"""multi-line"""`
-- **Escape sequences**: `\n`, `\t`, `\"`, etc.
+- **Escape sequences**: `\` followed by any character inserts that character literally (e.g. `\"`, `\\`, `\{`) — there are no named escapes like C's `\n`/`\t`; a real newline inside an argument needs a triple-quoted string
 - **Line continuations**: backslash at end of line continues on the next
 - **Comments**: `# This is a comment`
 - **Unicode**: Full support including emojis 👨‍🚀
