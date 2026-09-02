@@ -3,6 +3,7 @@ package confetti
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func collectTokens(t *testing.T, src string) ([]Token, error) {
@@ -101,6 +102,30 @@ func TestLexer_QuotedArguments_SingleAndTriple(t *testing.T) {
 	}
 }
 
+func TestLexer_TripleQuoted_TracksLineNumber(t *testing.T) {
+	// two embedded newlines inside the triple-quoted string, then a
+	// forbidden character on what should be reported as line 4.
+	src := "x \"\"\"\n\n\"\"\"\nbad \x01"
+	lx := NewLexer(src)
+
+	for {
+		tok, err := lx.NextToken()
+		if err != nil {
+			perr, ok := err.(*ParseError)
+			if !ok {
+				t.Fatalf("expected *ParseError, got %T: %v", err, err)
+			}
+			if perr.Line != 4 || perr.Column != 5 {
+				t.Fatalf("expected error at line 4, column 5 (positions after the triple-quoted string must account for its embedded newlines), got %d:%d", perr.Line, perr.Column)
+			}
+			return
+		}
+		if tok.Type == TokenEOF {
+			t.Fatalf("expected forbidden-character error, reached EOF instead")
+		}
+	}
+}
+
 func TestLexer_UnexpectedChar(t *testing.T) {
 	// include a reserved punctuator inside a bare word -> should stop before it
 	src := "key{"
@@ -130,6 +155,23 @@ func TestLexer_UnterminatedSingleQuoted(t *testing.T) {
 	_, err := lx.NextToken()
 	if err == nil {
 		t.Fatalf("expected error for unterminated quoted string")
+	}
+}
+
+func TestLexer_MalformedUTF8_ReportsActualPosition(t *testing.T) {
+	src := "ab\ncd\xff\n"
+	lx := NewLexer(src)
+
+	_, err := lx.NextToken()
+	if err == nil {
+		t.Fatalf("expected error for malformed UTF-8")
+	}
+	perr, ok := err.(*ParseError)
+	if !ok {
+		t.Fatalf("expected *ParseError, got %T: %v", err, err)
+	}
+	if perr.Line != 2 || perr.Column != 3 {
+		t.Fatalf("expected the invalid byte's actual position (line 2, column 3), got %d:%d", perr.Line, perr.Column)
 	}
 }
 
@@ -418,5 +460,33 @@ func TestLexer_PunctuatorArgument_MaximalMunch(t *testing.T) {
 	}
 	if len(args) != 3 || args[0] != "x" || args[1] != "===" || args[2] != "y" {
 		t.Fatalf("expected [x === y], got %v", args)
+	}
+}
+
+func TestLexer_PunctuatorArgument_EmptyStringIgnored(t *testing.T) {
+	opts := Options{PunctuatorArguments: []string{"", "="}}
+	done := make(chan struct{})
+	var toks []Token
+	var err error
+	go func() {
+		toks, err = collectTokensWithOpts(t, "x=y", opts)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lexer did not terminate: empty punctuator causes infinite loop")
+	}
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	args := []string{}
+	for _, tok := range toks {
+		if tok.Type == TokenArgument {
+			args = append(args, tok.Value)
+		}
+	}
+	if len(args) != 3 || args[0] != "x" || args[1] != "=" || args[2] != "y" {
+		t.Fatalf("expected [x = y], got %v", args)
 	}
 }

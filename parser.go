@@ -2,10 +2,15 @@ package confetti
 
 import "fmt"
 
+// maxNestingDepth caps block nesting to keep the recursive-descent parser
+// from overflowing the goroutine stack on adversarial input.
+const maxNestingDepth = 5000
+
 // Parser parses Confetti tokens into a ConfigurationUnit
 type Parser struct {
 	lexer   *Lexer
 	current Token
+	depth   int
 }
 
 // NewParser creates a new parser with no extensions enabled.
@@ -197,6 +202,12 @@ func (p *Parser) parseBlock() ([]Directive, error) {
 	// consume '{'
 	if p.current.Type != TokenLeftBrace {
 		return nil, p.errf("expected '{', got %s", p.current.Type)
+	}
+
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxNestingDepth {
+		return nil, p.errf("exceeded maximum nesting depth of %d", maxNestingDepth)
 	}
 
 	if err := p.advance(); err != nil {

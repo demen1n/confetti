@@ -31,13 +31,14 @@ func NewLexerWithOptions(input string, opts Options) *Lexer {
 		column: 1,
 		opts:   opts,
 	}
-	if len(opts.PunctuatorArguments) > 0 {
-		l.sortedPuncts = make([]string, len(opts.PunctuatorArguments))
-		copy(l.sortedPuncts, opts.PunctuatorArguments)
-		sort.Slice(l.sortedPuncts, func(i, j int) bool {
-			return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
-		})
+	for _, p := range opts.PunctuatorArguments {
+		if p != "" {
+			l.sortedPuncts = append(l.sortedPuncts, p)
+		}
 	}
+	sort.Slice(l.sortedPuncts, func(i, j int) bool {
+		return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
+	})
 	return l
 }
 
@@ -56,7 +57,8 @@ func (l *Lexer) NextToken() (Token, error) {
 	// check for malformed UTF-8 on first call
 	if l.pos == 0 {
 		if !ValidateUTF8(l.input) {
-			return Token{}, l.errf("malformed UTF-8")
+			line, col := findInvalidUTF8Position(l.input)
+			return Token{}, l.errAt(line, col, "malformed UTF-8")
 		}
 		// skip BOM at the beginning of file
 		if len(l.input) >= 3 && l.input[0:3] == "\xEF\xBB\xBF" {
@@ -148,6 +150,33 @@ func (l *Lexer) NextToken() (Token, error) {
 	}
 
 	return Token{}, l.errf("unexpected character %q", r)
+}
+
+// findInvalidUTF8Position walks s and returns the 1-based line/column of the
+// first byte that isn't valid UTF-8, using the same CRLF-as-one-line and
+// per-rune-column counting NextToken uses elsewhere.
+func findInvalidUTF8Position(s string) (line, col int) {
+	line, col = 1, 1
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			return line, col
+		}
+		if IsLineTerminator(r) {
+			i += size
+			if r == '\r' && i < len(s) {
+				if r2, size2 := utf8.DecodeRuneInString(s[i:]); r2 == '\n' {
+					i += size2
+				}
+			}
+			line++
+			col = 1
+			continue
+		}
+		i += size
+		col++
+	}
+	return line, col
 }
 
 func (l *Lexer) peek() rune {
@@ -545,6 +574,18 @@ func (l *Lexer) scanTripleQuoted() (Token, error) {
 
 		if IsForbidden(r) {
 			return Token{}, l.errf("forbidden character in string")
+		}
+
+		if IsLineTerminator(r) {
+			buf.WriteRune(r)
+			consumed := l.advance()
+			if consumed == '\r' && l.peek() == '\n' {
+				buf.WriteRune('\n')
+				l.advance()
+			}
+			l.line++
+			l.column = 1
+			continue
 		}
 
 		buf.WriteRune(r)

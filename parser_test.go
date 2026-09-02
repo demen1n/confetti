@@ -2,6 +2,7 @@ package confetti
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -428,4 +429,23 @@ func TestParser_Error_OnlyWhitespace(t *testing.T) {
 	if len(u.Directives) != 0 {
 		t.Fatalf("expected 0 directives for whitespace-only input, got %d", len(u.Directives))
 	}
+}
+
+func TestParser_Error_ExceedsMaxNestingDepth(t *testing.T) {
+	n := maxNestingDepth + 1
+	src := strings.Repeat("a{", n) + strings.Repeat("}", n)
+	p, err := NewParser(src)
+	if err != nil {
+		t.Fatalf("unexpected lexer error: %v", err)
+	}
+	_, err = p.Parse()
+	if err == nil {
+		t.Fatalf("expected error for nesting beyond %d levels", maxNestingDepth)
+	}
+}
+
+func TestParser_MaxNestingDepth_StillParses(t *testing.T) {
+	n := maxNestingDepth
+	src := strings.Repeat("a{", n) + strings.Repeat("}", n)
+	parseOK(t, src)
 }
