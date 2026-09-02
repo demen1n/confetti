@@ -31,13 +31,14 @@ func NewLexerWithOptions(input string, opts Options) *Lexer {
 		column: 1,
 		opts:   opts,
 	}
-	if len(opts.PunctuatorArguments) > 0 {
-		l.sortedPuncts = make([]string, len(opts.PunctuatorArguments))
-		copy(l.sortedPuncts, opts.PunctuatorArguments)
-		sort.Slice(l.sortedPuncts, func(i, j int) bool {
-			return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
-		})
+	for _, p := range opts.PunctuatorArguments {
+		if p != "" {
+			l.sortedPuncts = append(l.sortedPuncts, p)
+		}
 	}
+	sort.Slice(l.sortedPuncts, func(i, j int) bool {
+		return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
+	})
 	return l
 }
 

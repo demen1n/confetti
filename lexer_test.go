@@ -3,6 +3,7 @@ package confetti
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func collectTokens(t *testing.T, src string) ([]Token, error) {
@@ -418,5 +419,33 @@ func TestLexer_PunctuatorArgument_MaximalMunch(t *testing.T) {
 	}
 	if len(args) != 3 || args[0] != "x" || args[1] != "===" || args[2] != "y" {
 		t.Fatalf("expected [x === y], got %v", args)
+	}
+}
+
+func TestLexer_PunctuatorArgument_EmptyStringIgnored(t *testing.T) {
+	opts := Options{PunctuatorArguments: []string{"", "="}}
+	done := make(chan struct{})
+	var toks []Token
+	var err error
+	go func() {
+		toks, err = collectTokensWithOpts(t, "x=y", opts)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lexer did not terminate: empty punctuator causes infinite loop")
+	}
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	args := []string{}
+	for _, tok := range toks {
+		if tok.Type == TokenArgument {
+			args = append(args, tok.Value)
+		}
+	}
+	if len(args) != 3 || args[0] != "x" || args[1] != "=" || args[2] != "y" {
+		t.Fatalf("expected [x = y], got %v", args)
 	}
 }
