@@ -225,12 +225,17 @@ var durationType = reflect.TypeOf(time.Duration(0))
 // setScalar converts string s to the kind of rv and sets it.
 func setScalar(rv reflect.Value, s string) error {
 	if rv.Type() == durationType {
-		d, err := time.ParseDuration(s)
-		if err != nil {
-			return fmt.Errorf("cannot parse %q as duration: %w", s, err)
+		if d, err := time.ParseDuration(s); err == nil {
+			rv.SetInt(int64(d))
+			return nil
 		}
-		rv.SetInt(int64(d))
-		return nil
+		// fall back to a bare integer of nanoseconds, since time.Duration's
+		// underlying kind is int64 and previously decoded that way
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			rv.SetInt(n)
+			return nil
+		}
+		return fmt.Errorf("cannot parse %q as duration", s)
 	}
 	switch rv.Kind() {
 	case reflect.String:
