@@ -158,6 +158,23 @@ func TestLexer_UnterminatedSingleQuoted(t *testing.T) {
 	}
 }
 
+func TestLexer_MalformedUTF8_ReportsActualPosition(t *testing.T) {
+	src := "ab\ncd\xff\n"
+	lx := NewLexer(src)
+
+	_, err := lx.NextToken()
+	if err == nil {
+		t.Fatalf("expected error for malformed UTF-8")
+	}
+	perr, ok := err.(*ParseError)
+	if !ok {
+		t.Fatalf("expected *ParseError, got %T: %v", err, err)
+	}
+	if perr.Line != 2 || perr.Column != 3 {
+		t.Fatalf("expected the invalid byte's actual position (line 2, column 3), got %d:%d", perr.Line, perr.Column)
+	}
+}
+
 func TestLexer_UnterminatedTripleQuoted(t *testing.T) {
 	src := "\"\"\"never ending..."
 	lx := NewLexer(src)
