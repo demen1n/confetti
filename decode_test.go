@@ -288,6 +288,18 @@ func TestDecode_Duration(t *testing.T) {
 	}
 }
 
+func TestDecode_Duration_BareIntegerIsNanoseconds(t *testing.T) {
+	type Config struct {
+		Timeout time.Duration `conf:"timeout"`
+	}
+	var got Config
+	decodeOK(t, "timeout 30\n", &got)
+	want := Config{Timeout: 30 * time.Nanosecond}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
 func TestDecode_DurationInvalid(t *testing.T) {
 	type Config struct {
 		Timeout time.Duration `conf:"timeout"`
