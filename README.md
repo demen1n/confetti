@@ -270,7 +270,7 @@ go run tests/cmd/conformance.go -dir ./tests/conformance -v
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-This implementation is based on the [Confetti specification](https://confetti.hgs3.me/) by Henry G. Stratmann III.
+This implementation is based on the [Confetti specification](https://confetti.hgs3.me/) by Henry G. Stratmann III — see [NOTICE.md](NOTICE.md) for attribution.
 
 ## Contributing
 
