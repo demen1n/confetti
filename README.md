@@ -250,6 +250,25 @@ type Options struct {
 - Self-delimiting tokens built from argument characters
 - Example with `[":=", "="]`: `user:=smith` → three arguments: `user`, `:=`, `smith`
 - Longer punctuators always win (maximal munch)
+- Invalid punctuators (non-argument characters, `\`, or syntax reserved by another enabled extension) make parsing fail
+
+### Implementation-defined behaviour
+
+Where the formal grammar and the official conformance suite differ, this parser
+follows the suite (which reflects the reference implementation):
+
+- The last directive of a file or block may omit its terminator: `key value` at end of
+  input and `outer { key value }` both parse.
+- A single Control-Z (U+001A) at the very end of the input is treated as end of file;
+  anywhere else it is a forbidden character.
+- With expression arguments enabled, an unbalanced `)` outside an expression is an
+  ordinary argument character (`())` → arguments `""` and `")"`).
+
+Other choices the specification leaves to implementations:
+
+- A leading byte order mark (U+FEFF) is skipped.
+- Block nesting is limited to 5000 levels; deeper input is a `*ParseError`.
+- Format characters (category Cf) and private-use characters are allowed in arguments.
 
 ## Testing
 
