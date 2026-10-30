@@ -264,7 +264,8 @@ go test -v
 Download and run the official Confetti conformance tests:
 
 ```bash
-# Download latest tests from official repo
+# Download the pinned revision of the official suite
+# (replaces tests/conformance entirely; override with CONFETTI_TESTS_REF=<commit>)
 ./download-tests.sh
 
 # Run conformance tests
