@@ -134,6 +134,11 @@ if err := confetti.Unmarshal(string(data), &cfg); err != nil {
 | `conf:"-"` | Skip this field entirely |
 | _(no tag)_ | Use the lowercase field name |
 
+`arg` is the only tag option. A struct whose tags are ambiguous — an unknown
+option (`conf:"x,typo"`), two fields mapped to the same directive name, or more
+than one `,arg` field — makes `Decode` return an error instead of silently
+picking one of the fields.
+
 ### Supported field types
 
 | Go type | Source |

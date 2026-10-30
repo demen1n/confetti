@@ -365,3 +365,63 @@ func TestDecode_ArgFieldIntSlice(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
+
+func TestDecode_InvalidSchemaRejected(t *testing.T) {
+	type DupTag struct {
+		A string `conf:"x"`
+		B string `conf:"x"`
+	}
+	type DupImplicit struct {
+		Port string
+		P    string `conf:"port"`
+	}
+	type DupArg struct {
+		A string `conf:",arg"`
+		B string `conf:",arg"`
+	}
+	type UnknownOpt struct {
+		T string `conf:"t,arg,typo"`
+	}
+	type NestedBad struct {
+		Inner UnknownOpt `conf:"inner"`
+	}
+	cases := []struct {
+		name string
+		src  string
+		v    any
+		want string
+	}{
+		{"duplicate tag", "x 1\n", &DupTag{}, `map to directive "x"`},
+		{"tag collides with implicit name", "port 1\n", &DupImplicit{}, `map to directive "port"`},
+		{"two arg fields", "", &DupArg{}, `tagged ",arg"`},
+		{"unknown tag option", "", &UnknownOpt{}, `unknown tag option "typo"`},
+		{"unknown option in nested struct", "inner a { }\n", &NestedBad{}, `unknown tag option "typo"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Unmarshal(tc.src, tc.v)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestDecode_ValidSchemaVariants(t *testing.T) {
+	type Inner struct {
+		Name string `conf:"label,arg"` // the name part is ignored for ,arg fields
+		Port int
+	}
+	type Config struct {
+		Inner   Inner  `conf:"inner"`
+		Skipped string `conf:"-"`
+		Other   string `conf:"skipped"` // "-" fields do not reserve their implicit name
+		hidden  string //nolint:unused // unexported fields are ignored
+	}
+	var got Config
+	decodeOK(t, "inner a { port 8 }\nskipped yes\n", &got)
+	want := Config{Inner: Inner{Name: "a", Port: 8}, Other: "yes"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
