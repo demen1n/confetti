@@ -93,7 +93,13 @@ func (t TokenType) String() string {
 	return "unknown token"
 }
 
-// Token represents a lexical token
+// Token represents a lexical token.
+//
+// Line and Column are 1-based and mark the first character of the token
+// (the opening quote of a quoted argument, the # or / of a comment, the
+// reverse solidus of a line continuation). Columns count Unicode scalar
+// values, not bytes; CRLF counts as a single line terminator and a leading
+// byte order mark is not counted.
 type Token struct {
 	Type   TokenType
 	Value  string

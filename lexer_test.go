@@ -1,6 +1,7 @@
 package confetti
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -488,5 +489,144 @@ func TestLexer_PunctuatorArgument_EmptyStringIgnored(t *testing.T) {
 	}
 	if len(args) != 3 || args[0] != "x" || args[1] != "=" || args[2] != "y" {
 		t.Fatalf("expected [x = y], got %v", args)
+	}
+}
+
+func TestLexer_PunctuatorArgument_InvalidRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		punct string
+		opts  Options
+	}{
+		{"control char", "=\x01", Options{}},
+		{"line terminator", "=\n", Options{}},
+		{"whitespace", "= ", Options{}},
+		{"reserved brace", "={", Options{}},
+		{"reserved semicolon", ";", Options{}},
+		{"reserved quote", "=\"", Options{}},
+		{"reserved hash", "#", Options{}},
+		{"malformed UTF-8", "=\xff", Options{}},
+		{"reverse solidus", "\\=", Options{}},
+		{"paren with expressions", "=(", Options{ExpressionArguments: true}},
+		{"close paren with expressions", ")", Options{ExpressionArguments: true}},
+		{"line comment with C comments", "=//", Options{CStyleComments: true}},
+		{"block comment with C comments", "/*", Options{CStyleComments: true}},
+		{"block end with C comments", "*/", Options{CStyleComments: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.opts.PunctuatorArguments = []string{"=", tc.punct}
+			_, err := ParseWithOptions("key = value\n", tc.opts)
+			if err == nil {
+				t.Fatalf("expected error for punctuator %q", tc.punct)
+			}
+			var perr *ParseError
+			if errors.As(err, &perr) {
+				t.Fatalf("expected an options error, got *ParseError: %v", err)
+			}
+		})
+	}
+}
+
+func TestLexer_PunctuatorArgument_InvalidReportedByNextToken(t *testing.T) {
+	lx := NewLexerWithOptions("key = value", Options{PunctuatorArguments: []string{"=\n"}})
+	for i := 0; i < 2; i++ {
+		if _, err := lx.NextToken(); err == nil {
+			t.Fatalf("call %d: expected options error from NextToken", i+1)
+		}
+	}
+}
+
+func TestLexer_PunctuatorArgument_ValidAccepted(t *testing.T) {
+	cases := []struct {
+		name  string
+		punct []string
+		opts  Options
+		input string
+		want  []string
+	}{
+		{"unicode", []string{"→"}, Options{}, "a→b", []string{"a", "→", "b"}},
+		{"parens without expressions", []string{"()"}, Options{}, "f()x", []string{"f", "()", "x"}},
+		{"slashes without C comments", []string{"//"}, Options{}, "a//b", []string{"a", "//", "b"}},
+		{"single slash with C comments", []string{"/"}, Options{CStyleComments: true}, "a/b", []string{"a", "/", "b"}},
+		{"with all extensions", []string{":=", "="}, Options{CStyleComments: true, ExpressionArguments: true},
+			"x:=(1 + 2) // c", []string{"x", ":=", "1 + 2"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.opts.PunctuatorArguments = tc.punct
+			cfg, err := ParseWithOptions(tc.input, tc.opts)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(cfg.Directives) != 1 || !reflect.DeepEqual(cfg.Directives[0].Arguments, tc.want) {
+				t.Fatalf("expected one directive %q, got %+v", tc.want, cfg.Directives)
+			}
+		})
+	}
+}
+
+func TestLexer_TokenPositionsMarkTokenStart(t *testing.T) {
+	type pos struct {
+		typ          TokenType
+		line, column int
+	}
+	cases := []struct {
+		name  string
+		input string
+		opts  Options
+		want  []pos
+	}{
+		{"simple argument", "ab cd", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 4}, {TokenEOF, 1, 6}}},
+		{"single-quoted", `x "y z"`, Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 3}, {TokenEOF, 1, 8}}},
+		{"empty quoted", `"" x`, Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 4}, {TokenEOF, 1, 5}}},
+		{"triple-quoted multiline", "x \"\"\"a\nb\"\"\" y", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 3}, {TokenArgument, 2, 6}, {TokenEOF, 2, 7}}},
+		{"hash comment", "x #abc\ny", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenComment, 1, 3}, {TokenNewline, 1, 7}, {TokenArgument, 2, 1}, {TokenEOF, 2, 2}}},
+		{"line comment", "x // c\ny", Options{CStyleComments: true},
+			[]pos{{TokenArgument, 1, 1}, {TokenComment, 1, 3}, {TokenNewline, 1, 7}, {TokenArgument, 2, 1}, {TokenEOF, 2, 2}}},
+		{"block comment multiline", "x /*a\nb*/ y", Options{CStyleComments: true},
+			[]pos{{TokenArgument, 1, 1}, {TokenComment, 1, 3}, {TokenArgument, 2, 5}, {TokenEOF, 2, 6}}},
+		{"line continuation", "x \\\n  y", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenLineContinuation, 1, 3}, {TokenArgument, 2, 3}, {TokenEOF, 2, 4}}},
+		{"expression", "x (a\nb) y", Options{ExpressionArguments: true},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 3}, {TokenArgument, 2, 4}, {TokenEOF, 2, 5}}},
+		{"punctuator", "x:=y", Options{PunctuatorArguments: []string{":="}},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 2}, {TokenArgument, 1, 4}, {TokenEOF, 1, 5}}},
+		{"punctuation tokens", "a { b; }", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenLeftBrace, 1, 3}, {TokenArgument, 1, 5}, {TokenSemicolon, 1, 6}, {TokenRightBrace, 1, 8}, {TokenEOF, 1, 9}}},
+		{"unicode counts runes", "ключ \"знач\" x", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 6}, {TokenArgument, 1, 13}, {TokenEOF, 1, 14}}},
+		{"CRLF is one terminator", "a\r\n\"b\"", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenNewline, 1, 2}, {TokenArgument, 2, 1}, {TokenEOF, 2, 4}}},
+		{"BOM is not counted", "\uFEFF\"a\"", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenEOF, 1, 4}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			toks, err := collectTokensWithOpts(t, tc.input, tc.opts)
+			if err != nil {
+				t.Fatalf("lexer error: %v", err)
+			}
+			var got []pos
+			for _, tok := range toks {
+				got = append(got, pos{tok.Type, tok.Line, tok.Column})
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("positions mismatch:\n got: %v\nwant: %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLexer_UnterminatedBlockCommentReportsStart(t *testing.T) {
+	_, err := ParseWithOptions("x\n  /* never\nclosed", Options{CStyleComments: true})
+	var perr *ParseError
+	if !errors.As(err, &perr) || perr.Line != 2 || perr.Column != 3 {
+		t.Fatalf("expected *ParseError at 2:3, got %v", err)
 	}
 }

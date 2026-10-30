@@ -51,7 +51,9 @@ type structMeta struct {
 }
 
 // fieldMap inspects t (must be a struct Type) and returns structMeta.
-func fieldMap(t reflect.Type) structMeta {
+// It rejects ambiguous mappings: unknown tag options, more than one ",arg"
+// field, and two fields mapped to the same directive name.
+func fieldMap(t reflect.Type) (structMeta, error) {
 	meta := structMeta{
 		byName:      make(map[string]fieldInfo),
 		argFieldIdx: -1,
@@ -66,9 +68,20 @@ func fieldMap(t reflect.Type) structMeta {
 			continue
 		}
 		name, opts, _ := strings.Cut(tag, ",")
-		isArg := opts == "arg"
+		isArg := false
+		if opts != "" {
+			for _, opt := range strings.Split(opts, ",") {
+				if opt != "arg" {
+					return meta, fmt.Errorf("%s.%s: unknown tag option %q", t, f.Name, opt)
+				}
+				isArg = true
+			}
+		}
 
 		if isArg {
+			if meta.argFieldIdx >= 0 {
+				return meta, fmt.Errorf("%s: both %s and %s are tagged \",arg\"", t, t.Field(meta.argFieldIdx).Name, f.Name)
+			}
 			meta.argFieldIdx = i
 			continue
 		}
@@ -76,16 +89,26 @@ func fieldMap(t reflect.Type) structMeta {
 		if name == "" {
 			name = strings.ToLower(f.Name)
 		}
+		if prev, ok := meta.byName[name]; ok {
+			return meta, fmt.Errorf("%s: both %s and %s map to directive %q", t, t.Field(prev.index).Name, f.Name, name)
+		}
 		meta.byName[name] = fieldInfo{index: i}
 	}
-	return meta
+	return meta, nil
 }
 
 // decodeStruct populates the struct value rv from the given directives.
 func decodeStruct(directives []Directive, rv reflect.Value) error {
-	t := rv.Type()
-	meta := fieldMap(t)
+	meta, err := fieldMap(rv.Type())
+	if err != nil {
+		return fmt.Errorf("confetti: %w", err)
+	}
+	return decodeFields(directives, rv, meta)
+}
 
+// decodeFields populates the fields of rv described by meta from the given directives.
+func decodeFields(directives []Directive, rv reflect.Value, meta structMeta) error {
+	t := rv.Type()
 	for _, dir := range directives {
 		if len(dir.Arguments) == 0 {
 			continue
@@ -176,7 +199,10 @@ func appendStructElem(fv reflect.Value, elemType reflect.Type, extraArgs []strin
 // decodeBlockIntoStruct decodes subdirectives into sv (a struct Value) and sets
 // the ",arg" field (if any) from extraArgs.
 func decodeBlockIntoStruct(sv reflect.Value, extraArgs []string, subdirs []Directive) error {
-	meta := fieldMap(sv.Type())
+	meta, err := fieldMap(sv.Type())
+	if err != nil {
+		return err
+	}
 
 	// set inline args
 	if err := setArgField(sv, meta.argFieldIdx, extraArgs); err != nil {
@@ -184,7 +210,7 @@ func decodeBlockIntoStruct(sv reflect.Value, extraArgs []string, subdirs []Direc
 	}
 
 	// recurse into subdirectives
-	return decodeStruct(subdirs, sv)
+	return decodeFields(subdirs, sv, meta)
 }
 
 // setArgField populates the ",arg" field at argIdx in rv from args.

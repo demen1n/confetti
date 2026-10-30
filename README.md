@@ -134,6 +134,11 @@ if err := confetti.Unmarshal(string(data), &cfg); err != nil {
 | `conf:"-"` | Skip this field entirely |
 | _(no tag)_ | Use the lowercase field name |
 
+`arg` is the only tag option. A struct whose tags are ambiguous — an unknown
+option (`conf:"x,typo"`), two fields mapped to the same directive name, or more
+than one `,arg` field — makes `Decode` return an error instead of silently
+picking one of the fields.
+
 ### Supported field types
 
 | Go type | Source |
@@ -245,6 +250,25 @@ type Options struct {
 - Self-delimiting tokens built from argument characters
 - Example with `[":=", "="]`: `user:=smith` → three arguments: `user`, `:=`, `smith`
 - Longer punctuators always win (maximal munch)
+- Invalid punctuators (non-argument characters, `\`, or syntax reserved by another enabled extension) make parsing fail
+
+### Implementation-defined behaviour
+
+Where the formal grammar and the official conformance suite differ, this parser
+follows the suite (which reflects the reference implementation):
+
+- The last directive of a file or block may omit its terminator: `key value` at end of
+  input and `outer { key value }` both parse.
+- A single Control-Z (U+001A) at the very end of the input is treated as end of file;
+  anywhere else it is a forbidden character.
+- With expression arguments enabled, an unbalanced `)` outside an expression is an
+  ordinary argument character (`())` → arguments `""` and `")"`).
+
+Other choices the specification leaves to implementations:
+
+- A leading byte order mark (U+FEFF) is skipped.
+- Block nesting is limited to 5000 levels; deeper input is a `*ParseError`.
+- Format characters (category Cf) and private-use characters are allowed in arguments.
 
 ## Testing
 
@@ -259,7 +283,8 @@ go test -v
 Download and run the official Confetti conformance tests:
 
 ```bash
-# Download latest tests from official repo
+# Download the pinned revision of the official suite
+# (replaces tests/conformance entirely; override with CONFETTI_TESTS_REF=<commit>)
 ./download-tests.sh
 
 # Run conformance tests

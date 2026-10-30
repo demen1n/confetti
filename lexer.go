@@ -15,6 +15,7 @@ type Lexer struct {
 	column       int
 	opts         Options
 	sortedPuncts []string // PunctuatorArguments sorted by length descending (maximal munch)
+	optsErr      error    // invalid options, reported by the first NextToken call
 }
 
 // NewLexer creates a new lexer with no extensions enabled.
@@ -32,14 +33,42 @@ func NewLexerWithOptions(input string, opts Options) *Lexer {
 		opts:   opts,
 	}
 	for _, p := range opts.PunctuatorArguments {
-		if p != "" {
-			l.sortedPuncts = append(l.sortedPuncts, p)
+		if p == "" {
+			continue
 		}
+		if err := validatePunctuator(p, opts); err != nil {
+			l.optsErr = err
+			return l
+		}
+		l.sortedPuncts = append(l.sortedPuncts, p)
 	}
 	sort.Slice(l.sortedPuncts, func(i, j int) bool {
 		return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
 	})
 	return l
+}
+
+// validatePunctuator checks that p consists only of argument characters (Annex C)
+// and does not collide with syntax reserved by the other enabled extensions.
+func validatePunctuator(p string, opts Options) error {
+	if !utf8.ValidString(p) {
+		return fmt.Errorf("confetti: invalid punctuator argument %q: malformed UTF-8", p)
+	}
+	for _, r := range p {
+		if !IsArgumentChar(r) {
+			return fmt.Errorf("confetti: invalid punctuator argument %q: %q is not an argument character", p, r)
+		}
+		if r == '\\' {
+			return fmt.Errorf("confetti: invalid punctuator argument %q: reverse solidus is reserved for escapes", p)
+		}
+		if opts.ExpressionArguments && (r == '(' || r == ')') {
+			return fmt.Errorf("confetti: invalid punctuator argument %q: %q is reserved by expression arguments", p, r)
+		}
+	}
+	if opts.CStyleComments && (strings.Contains(p, "//") || strings.Contains(p, "/*") || strings.Contains(p, "*/")) {
+		return fmt.Errorf("confetti: invalid punctuator argument %q: contains a C-style comment delimiter", p)
+	}
+	return nil
 }
 
 // errf returns a *ParseError at the lexer's current position.
@@ -54,6 +83,10 @@ func (l *Lexer) errAt(line, column int, format string, args ...any) error {
 
 // NextToken returns the next token
 func (l *Lexer) NextToken() (Token, error) {
+	if l.optsErr != nil {
+		return Token{}, l.optsErr
+	}
+
 	// check for malformed UTF-8 on first call
 	if l.pos == 0 {
 		if !ValidateUTF8(l.input) {
@@ -245,6 +278,7 @@ func (l *Lexer) scanNewline() (Token, error) {
 }
 
 func (l *Lexer) scanComment() (Token, error) {
+	tok := l.makeToken(TokenComment, "")
 	start := l.pos
 	l.advance() // skip '#'
 
@@ -259,12 +293,13 @@ func (l *Lexer) scanComment() (Token, error) {
 		l.advance()
 	}
 
-	value := l.input[start:l.pos]
-	return l.makeToken(TokenComment, value), nil
+	tok.Value = l.input[start:l.pos]
+	return tok, nil
 }
 
 // scanCStyleLineComment scans a // single-line comment (Annex A).
 func (l *Lexer) scanCStyleLineComment() (Token, error) {
+	tok := l.makeToken(TokenComment, "")
 	start := l.pos
 	l.advance() // skip first '/'
 	l.advance() // skip second '/'
@@ -280,13 +315,13 @@ func (l *Lexer) scanCStyleLineComment() (Token, error) {
 		l.advance()
 	}
 
-	value := l.input[start:l.pos]
-	return l.makeToken(TokenComment, value), nil
+	tok.Value = l.input[start:l.pos]
+	return tok, nil
 }
 
 // scanCStyleBlockComment scans a /* ... */ block comment (Annex A).
 func (l *Lexer) scanCStyleBlockComment() (Token, error) {
-	startLine, startCol := l.line, l.column
+	tok := l.makeToken(TokenComment, "")
 	start := l.pos
 	l.advance() // skip '/'
 	l.advance() // skip '*'
@@ -298,8 +333,8 @@ func (l *Lexer) scanCStyleBlockComment() (Token, error) {
 		if r == '*' && l.peekSecond() == '/' {
 			l.advance() // skip '*'
 			l.advance() // skip '/'
-			value := l.input[start:l.pos]
-			return l.makeToken(TokenComment, value), nil
+			tok.Value = l.input[start:l.pos]
+			return tok, nil
 		}
 
 		if IsForbidden(r) {
@@ -319,7 +354,7 @@ func (l *Lexer) scanCStyleBlockComment() (Token, error) {
 		l.advance()
 	}
 
-	return Token{}, l.errAt(startLine, startCol, "unterminated block comment")
+	return Token{}, l.errAt(tok.Line, tok.Column, "unterminated block comment")
 }
 
 // scanExpressionArgument scans a (expr) argument with balanced parentheses (Annex B).
@@ -423,7 +458,9 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 				l.line++
 				l.column = 1
 				l.skipWhitespace()
-				return l.makeToken(TokenLineContinuation, ""), nil
+				// the buffer is empty, so tok still marks the reverse solidus
+				tok.Type = TokenLineContinuation
+				return tok, nil
 			}
 
 			// escaped character
@@ -475,19 +512,19 @@ func (l *Lexer) scanQuotedArgument() (Token, error) {
 		l.advance()
 		if l.peek() == '"' {
 			l.advance()
-			return l.scanTripleQuoted()
+			return l.scanTripleQuoted(tok)
 		}
 		// empty single-quoted string
 		tok.Value = ""
 		return tok, nil
 	}
 
-	return l.scanSingleQuoted()
+	return l.scanSingleQuoted(tok)
 }
 
-func (l *Lexer) scanSingleQuoted() (Token, error) {
+// scanSingleQuoted scans the rest of a "..." argument; tok marks its opening quote.
+func (l *Lexer) scanSingleQuoted(tok Token) (Token, error) {
 	var buf strings.Builder
-	tok := l.makeToken(TokenArgument, "")
 
 	for l.pos < len(l.input) {
 		r := l.peek()
@@ -540,9 +577,9 @@ func (l *Lexer) scanSingleQuoted() (Token, error) {
 	return Token{}, l.errf("unterminated quoted string")
 }
 
-func (l *Lexer) scanTripleQuoted() (Token, error) {
+// scanTripleQuoted scans the rest of a """...""" argument; tok marks its opening quotes.
+func (l *Lexer) scanTripleQuoted(tok Token) (Token, error) {
 	var buf strings.Builder
-	tok := l.makeToken(TokenArgument, "")
 
 	for l.pos < len(l.input) {
 		r := l.peek()

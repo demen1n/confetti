@@ -40,7 +40,8 @@
 //	err := confetti.Unmarshal(input, &cfg)
 //
 // The tag `conf:",arg"` captures the inline arguments of a block directive,
-// and `conf:"-"` skips a field. See [Decode] for decoding an already-parsed
+// and `conf:"-"` skips a field. Ambiguous tags (unknown options, duplicate
+// directive names, several ",arg" fields) are reported as errors. See [Decode] for decoding an already-parsed
 // [ConfigurationUnit].
 //
 // # Extensions

@@ -116,6 +116,9 @@ func main() {
 	}
 
 	fmt.Printf("\n===== Results =====\n")
+	if rev, err := os.ReadFile(filepath.Join(*testDir, "REVISION")); err == nil {
+		fmt.Printf("Suite:   %s\n", strings.TrimSpace(string(rev)))
+	}
 	fmt.Printf("Passed:  %d\n", passed)
 	fmt.Printf("Failed:  %d\n", failed)
 	fmt.Printf("Total:   %d\n", passed+failed)
