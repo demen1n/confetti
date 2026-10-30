@@ -278,6 +278,7 @@ func (l *Lexer) scanNewline() (Token, error) {
 }
 
 func (l *Lexer) scanComment() (Token, error) {
+	tok := l.makeToken(TokenComment, "")
 	start := l.pos
 	l.advance() // skip '#'
 
@@ -292,12 +293,13 @@ func (l *Lexer) scanComment() (Token, error) {
 		l.advance()
 	}
 
-	value := l.input[start:l.pos]
-	return l.makeToken(TokenComment, value), nil
+	tok.Value = l.input[start:l.pos]
+	return tok, nil
 }
 
 // scanCStyleLineComment scans a // single-line comment (Annex A).
 func (l *Lexer) scanCStyleLineComment() (Token, error) {
+	tok := l.makeToken(TokenComment, "")
 	start := l.pos
 	l.advance() // skip first '/'
 	l.advance() // skip second '/'
@@ -313,13 +315,13 @@ func (l *Lexer) scanCStyleLineComment() (Token, error) {
 		l.advance()
 	}
 
-	value := l.input[start:l.pos]
-	return l.makeToken(TokenComment, value), nil
+	tok.Value = l.input[start:l.pos]
+	return tok, nil
 }
 
 // scanCStyleBlockComment scans a /* ... */ block comment (Annex A).
 func (l *Lexer) scanCStyleBlockComment() (Token, error) {
-	startLine, startCol := l.line, l.column
+	tok := l.makeToken(TokenComment, "")
 	start := l.pos
 	l.advance() // skip '/'
 	l.advance() // skip '*'
@@ -331,8 +333,8 @@ func (l *Lexer) scanCStyleBlockComment() (Token, error) {
 		if r == '*' && l.peekSecond() == '/' {
 			l.advance() // skip '*'
 			l.advance() // skip '/'
-			value := l.input[start:l.pos]
-			return l.makeToken(TokenComment, value), nil
+			tok.Value = l.input[start:l.pos]
+			return tok, nil
 		}
 
 		if IsForbidden(r) {
@@ -352,7 +354,7 @@ func (l *Lexer) scanCStyleBlockComment() (Token, error) {
 		l.advance()
 	}
 
-	return Token{}, l.errAt(startLine, startCol, "unterminated block comment")
+	return Token{}, l.errAt(tok.Line, tok.Column, "unterminated block comment")
 }
 
 // scanExpressionArgument scans a (expr) argument with balanced parentheses (Annex B).
@@ -456,7 +458,9 @@ func (l *Lexer) scanSimpleArgument() (Token, error) {
 				l.line++
 				l.column = 1
 				l.skipWhitespace()
-				return l.makeToken(TokenLineContinuation, ""), nil
+				// the buffer is empty, so tok still marks the reverse solidus
+				tok.Type = TokenLineContinuation
+				return tok, nil
 			}
 
 			// escaped character
@@ -508,19 +512,19 @@ func (l *Lexer) scanQuotedArgument() (Token, error) {
 		l.advance()
 		if l.peek() == '"' {
 			l.advance()
-			return l.scanTripleQuoted()
+			return l.scanTripleQuoted(tok)
 		}
 		// empty single-quoted string
 		tok.Value = ""
 		return tok, nil
 	}
 
-	return l.scanSingleQuoted()
+	return l.scanSingleQuoted(tok)
 }
 
-func (l *Lexer) scanSingleQuoted() (Token, error) {
+// scanSingleQuoted scans the rest of a "..." argument; tok marks its opening quote.
+func (l *Lexer) scanSingleQuoted(tok Token) (Token, error) {
 	var buf strings.Builder
-	tok := l.makeToken(TokenArgument, "")
 
 	for l.pos < len(l.input) {
 		r := l.peek()
@@ -573,9 +577,9 @@ func (l *Lexer) scanSingleQuoted() (Token, error) {
 	return Token{}, l.errf("unterminated quoted string")
 }
 
-func (l *Lexer) scanTripleQuoted() (Token, error) {
+// scanTripleQuoted scans the rest of a """...""" argument; tok marks its opening quotes.
+func (l *Lexer) scanTripleQuoted(tok Token) (Token, error) {
 	var buf strings.Builder
-	tok := l.makeToken(TokenArgument, "")
 
 	for l.pos < len(l.input) {
 		r := l.peek()

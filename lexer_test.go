@@ -565,3 +565,68 @@ func TestLexer_PunctuatorArgument_ValidAccepted(t *testing.T) {
 		})
 	}
 }
+
+func TestLexer_TokenPositionsMarkTokenStart(t *testing.T) {
+	type pos struct {
+		typ          TokenType
+		line, column int
+	}
+	cases := []struct {
+		name  string
+		input string
+		opts  Options
+		want  []pos
+	}{
+		{"simple argument", "ab cd", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 4}, {TokenEOF, 1, 6}}},
+		{"single-quoted", `x "y z"`, Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 3}, {TokenEOF, 1, 8}}},
+		{"empty quoted", `"" x`, Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 4}, {TokenEOF, 1, 5}}},
+		{"triple-quoted multiline", "x \"\"\"a\nb\"\"\" y", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 3}, {TokenArgument, 2, 6}, {TokenEOF, 2, 7}}},
+		{"hash comment", "x #abc\ny", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenComment, 1, 3}, {TokenNewline, 1, 7}, {TokenArgument, 2, 1}, {TokenEOF, 2, 2}}},
+		{"line comment", "x // c\ny", Options{CStyleComments: true},
+			[]pos{{TokenArgument, 1, 1}, {TokenComment, 1, 3}, {TokenNewline, 1, 7}, {TokenArgument, 2, 1}, {TokenEOF, 2, 2}}},
+		{"block comment multiline", "x /*a\nb*/ y", Options{CStyleComments: true},
+			[]pos{{TokenArgument, 1, 1}, {TokenComment, 1, 3}, {TokenArgument, 2, 5}, {TokenEOF, 2, 6}}},
+		{"line continuation", "x \\\n  y", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenLineContinuation, 1, 3}, {TokenArgument, 2, 3}, {TokenEOF, 2, 4}}},
+		{"expression", "x (a\nb) y", Options{ExpressionArguments: true},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 3}, {TokenArgument, 2, 4}, {TokenEOF, 2, 5}}},
+		{"punctuator", "x:=y", Options{PunctuatorArguments: []string{":="}},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 2}, {TokenArgument, 1, 4}, {TokenEOF, 1, 5}}},
+		{"punctuation tokens", "a { b; }", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenLeftBrace, 1, 3}, {TokenArgument, 1, 5}, {TokenSemicolon, 1, 6}, {TokenRightBrace, 1, 8}, {TokenEOF, 1, 9}}},
+		{"unicode counts runes", "ключ \"знач\" x", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenArgument, 1, 6}, {TokenArgument, 1, 13}, {TokenEOF, 1, 14}}},
+		{"CRLF is one terminator", "a\r\n\"b\"", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenNewline, 1, 2}, {TokenArgument, 2, 1}, {TokenEOF, 2, 4}}},
+		{"BOM is not counted", "\uFEFF\"a\"", Options{},
+			[]pos{{TokenArgument, 1, 1}, {TokenEOF, 1, 4}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			toks, err := collectTokensWithOpts(t, tc.input, tc.opts)
+			if err != nil {
+				t.Fatalf("lexer error: %v", err)
+			}
+			var got []pos
+			for _, tok := range toks {
+				got = append(got, pos{tok.Type, tok.Line, tok.Column})
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("positions mismatch:\n got: %v\nwant: %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLexer_UnterminatedBlockCommentReportsStart(t *testing.T) {
+	_, err := ParseWithOptions("x\n  /* never\nclosed", Options{CStyleComments: true})
+	var perr *ParseError
+	if !errors.As(err, &perr) || perr.Line != 2 || perr.Column != 3 {
+		t.Fatalf("expected *ParseError at 2:3, got %v", err)
+	}
+}
