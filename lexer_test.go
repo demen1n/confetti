@@ -1,6 +1,7 @@
 package confetti
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -488,5 +489,79 @@ func TestLexer_PunctuatorArgument_EmptyStringIgnored(t *testing.T) {
 	}
 	if len(args) != 3 || args[0] != "x" || args[1] != "=" || args[2] != "y" {
 		t.Fatalf("expected [x = y], got %v", args)
+	}
+}
+
+func TestLexer_PunctuatorArgument_InvalidRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		punct string
+		opts  Options
+	}{
+		{"control char", "=\x01", Options{}},
+		{"line terminator", "=\n", Options{}},
+		{"whitespace", "= ", Options{}},
+		{"reserved brace", "={", Options{}},
+		{"reserved semicolon", ";", Options{}},
+		{"reserved quote", "=\"", Options{}},
+		{"reserved hash", "#", Options{}},
+		{"malformed UTF-8", "=\xff", Options{}},
+		{"reverse solidus", "\\=", Options{}},
+		{"paren with expressions", "=(", Options{ExpressionArguments: true}},
+		{"close paren with expressions", ")", Options{ExpressionArguments: true}},
+		{"line comment with C comments", "=//", Options{CStyleComments: true}},
+		{"block comment with C comments", "/*", Options{CStyleComments: true}},
+		{"block end with C comments", "*/", Options{CStyleComments: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.opts.PunctuatorArguments = []string{"=", tc.punct}
+			_, err := ParseWithOptions("key = value\n", tc.opts)
+			if err == nil {
+				t.Fatalf("expected error for punctuator %q", tc.punct)
+			}
+			var perr *ParseError
+			if errors.As(err, &perr) {
+				t.Fatalf("expected an options error, got *ParseError: %v", err)
+			}
+		})
+	}
+}
+
+func TestLexer_PunctuatorArgument_InvalidReportedByNextToken(t *testing.T) {
+	lx := NewLexerWithOptions("key = value", Options{PunctuatorArguments: []string{"=\n"}})
+	for i := 0; i < 2; i++ {
+		if _, err := lx.NextToken(); err == nil {
+			t.Fatalf("call %d: expected options error from NextToken", i+1)
+		}
+	}
+}
+
+func TestLexer_PunctuatorArgument_ValidAccepted(t *testing.T) {
+	cases := []struct {
+		name  string
+		punct []string
+		opts  Options
+		input string
+		want  []string
+	}{
+		{"unicode", []string{"→"}, Options{}, "a→b", []string{"a", "→", "b"}},
+		{"parens without expressions", []string{"()"}, Options{}, "f()x", []string{"f", "()", "x"}},
+		{"slashes without C comments", []string{"//"}, Options{}, "a//b", []string{"a", "//", "b"}},
+		{"single slash with C comments", []string{"/"}, Options{CStyleComments: true}, "a/b", []string{"a", "/", "b"}},
+		{"with all extensions", []string{":=", "="}, Options{CStyleComments: true, ExpressionArguments: true},
+			"x:=(1 + 2) // c", []string{"x", ":=", "1 + 2"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.opts.PunctuatorArguments = tc.punct
+			cfg, err := ParseWithOptions(tc.input, tc.opts)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(cfg.Directives) != 1 || !reflect.DeepEqual(cfg.Directives[0].Arguments, tc.want) {
+				t.Fatalf("expected one directive %q, got %+v", tc.want, cfg.Directives)
+			}
+		})
 	}
 }

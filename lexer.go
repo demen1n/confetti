@@ -15,6 +15,7 @@ type Lexer struct {
 	column       int
 	opts         Options
 	sortedPuncts []string // PunctuatorArguments sorted by length descending (maximal munch)
+	optsErr      error    // invalid options, reported by the first NextToken call
 }
 
 // NewLexer creates a new lexer with no extensions enabled.
@@ -32,14 +33,42 @@ func NewLexerWithOptions(input string, opts Options) *Lexer {
 		opts:   opts,
 	}
 	for _, p := range opts.PunctuatorArguments {
-		if p != "" {
-			l.sortedPuncts = append(l.sortedPuncts, p)
+		if p == "" {
+			continue
 		}
+		if err := validatePunctuator(p, opts); err != nil {
+			l.optsErr = err
+			return l
+		}
+		l.sortedPuncts = append(l.sortedPuncts, p)
 	}
 	sort.Slice(l.sortedPuncts, func(i, j int) bool {
 		return len(l.sortedPuncts[i]) > len(l.sortedPuncts[j])
 	})
 	return l
+}
+
+// validatePunctuator checks that p consists only of argument characters (Annex C)
+// and does not collide with syntax reserved by the other enabled extensions.
+func validatePunctuator(p string, opts Options) error {
+	if !utf8.ValidString(p) {
+		return fmt.Errorf("confetti: invalid punctuator argument %q: malformed UTF-8", p)
+	}
+	for _, r := range p {
+		if !IsArgumentChar(r) {
+			return fmt.Errorf("confetti: invalid punctuator argument %q: %q is not an argument character", p, r)
+		}
+		if r == '\\' {
+			return fmt.Errorf("confetti: invalid punctuator argument %q: reverse solidus is reserved for escapes", p)
+		}
+		if opts.ExpressionArguments && (r == '(' || r == ')') {
+			return fmt.Errorf("confetti: invalid punctuator argument %q: %q is reserved by expression arguments", p, r)
+		}
+	}
+	if opts.CStyleComments && (strings.Contains(p, "//") || strings.Contains(p, "/*") || strings.Contains(p, "*/")) {
+		return fmt.Errorf("confetti: invalid punctuator argument %q: contains a C-style comment delimiter", p)
+	}
+	return nil
 }
 
 // errf returns a *ParseError at the lexer's current position.
@@ -54,6 +83,10 @@ func (l *Lexer) errAt(line, column int, format string, args ...any) error {
 
 // NextToken returns the next token
 func (l *Lexer) NextToken() (Token, error) {
+	if l.optsErr != nil {
+		return Token{}, l.optsErr
+	}
+
 	// check for malformed UTF-8 on first call
 	if l.pos == 0 {
 		if !ValidateUTF8(l.input) {
